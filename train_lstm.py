@@ -6,6 +6,7 @@ from model_lstm import JV_LSTM
 from build_dataset import build_dataset
 import matplotlib.pyplot as plt
 
+
 def train(directory):
     loader, scalers = build_dataset(directory)
     model = JV_LSTM()
@@ -14,7 +15,7 @@ def train(directory):
 
     losses = []
 
-    for epoch in range(40):
+    for epoch in range(100):
         running = 0
         for X,Y in loader:
             opt.zero_grad()

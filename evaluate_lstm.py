@@ -7,6 +7,30 @@ import matplotlib.pyplot as plt
 from model_lstm import JV_LSTM
 from build_dataset import build_dataset
 
+def reconstruct_jv_curve(Voc, Jsc, Pmpp, num_points=100):
+    V = np.linspace(0, Voc, num_points)
+
+    # Compute FF safely
+    FF = Pmpp / (Voc * Jsc)
+    FF = np.clip(FF, 0.01, 0.85)
+
+    # Estimate Vmpp and Impp
+    Vmpp = FF * Voc
+    Impp = FF * Jsc
+
+    # Safe ratios
+    ratio1 = np.clip(1 - Impp / Jsc, 1e-6, 1)
+    ratio2 = np.clip(Vmpp / Voc, 1e-6, 0.999999)
+
+    # Compute exponent
+    a = np.log(ratio1) / np.log(ratio2)
+    a = np.clip(a, 1.2, 10)
+
+    # Construct JV curve
+    J = Jsc * (1 - (V / Voc)**a)
+    return V, J
+
+
 
 def metrics(y_true, y_pred):
     mae = np.mean(np.abs(y_true-y_pred))
@@ -28,6 +52,19 @@ def plot_true_vs_pred(true, pred, name):
     plt.grid(alpha=0.3)
     plt.tight_layout()
     plt.savefig(f"plot_true_vs_pred_{name}.png", dpi=150)
+    plt.close()
+
+def plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx):
+    plt.figure(figsize=(6,5))
+    plt.plot(V_true, J_true, label="True JV", linewidth=2)
+    plt.plot(V_pred, J_pred, label="Predicted JV", linestyle="--", linewidth=2)
+    plt.xlabel("Voltage (V)")
+    plt.ylabel("Current (A)")
+    plt.title(f"JV Curve Comparison #{idx}")
+    plt.grid(alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(f"jv_curve_comparison_{idx}.png", dpi=150)
     plt.close()
 
 
@@ -96,6 +133,27 @@ def evaluate(directory):
     plot_true_vs_pred(FF_true, FF_pred, "FF")
 
     print("📊 Plots saved: plot_true_vs_pred_*.png")
+
+    # ---------------------------------------------------------
+    # RECONSTRUCT JV CURVES FOR A FEW SAMPLES
+    # ---------------------------------------------------------
+    print("\n🔧 Reconstructing JV curves...")
+
+    for idx in range(5):  # generate 5 example plots
+        Voc_t, Jsc_t, Pmpp_t = trues[idx]
+        Voc_p, Jsc_p, Pmpp_p = preds[idx]
+
+        # True JV curve (from raw data)
+        # You already have voltage/current in samples, so load them:
+        # But build_dataset() does not return raw JV curves.
+        # So we reconstruct true JV using the same model for consistency.
+        V_true, J_true = reconstruct_jv_curve(Voc_t, Jsc_t, Pmpp_t)
+        V_pred, J_pred = reconstruct_jv_curve(Voc_p, Jsc_p, Pmpp_p)
+
+        plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx)
+
+    print("📊 JV curve plots saved: jv_curve_comparison_*.png")
+
 
 
 if __name__ == "__main__":
