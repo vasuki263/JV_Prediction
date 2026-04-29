@@ -4,6 +4,8 @@ import numpy as np
 from pathlib import Path
 import re
 import matplotlib.pyplot as plt
+from datetime import datetime
+
 
 MAX_IRRADIANCE_VARIATION = 45
 MAX_IRRADIANCE_DIFFERENCE_FWD_BWD = 30
@@ -20,6 +22,13 @@ LOG = {
     "forward_invalid": 0,
     "backward_invalid": 0
 }
+
+def parse_timestamp_from_filename(name):
+    m = re.search(r'(\d{8})_(\d{6})', name)
+    if m:
+        return datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S")
+    return None
+
 
 # def extract_temperature(filepath):
 #     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
@@ -99,6 +108,12 @@ def extract_clean_jv(filepath):
     voltage, current, irr = load_raw(filepath)
     if voltage is None:
         return []
+    
+    timestamp = parse_timestamp_from_filename(filepath.name)
+    # if no timestamp, you can choose to skip
+    if timestamp is None:
+        print("time=", timestamp)
+        return []
 
     sep = min(899, len(voltage)//2)
     irr_fwd, irr_bwd = irr[:sep], irr[sep:]
@@ -145,6 +160,7 @@ def extract_clean_jv(filepath):
             "irradiance": irr_avg,
             "voltage": v_fwd,
             "current": i_fwd,
+            "timestamp": timestamp,
             "Voc": Voc_f,
             "Jsc": Isc_f,
             "Pmpp": Pmpp_f,
@@ -164,6 +180,7 @@ def extract_clean_jv(filepath):
             "irradiance": irr_avg,
             "voltage": v_bwd,
             "current": i_bwd,
+            "timestamp": timestamp,
             "Voc": Voc_b,
             "Jsc": Isc_b,
             "Pmpp": Pmpp_b,

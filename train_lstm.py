@@ -5,11 +5,12 @@ import torch.nn as nn
 from model_lstm import JV_LSTM
 from build_dataset import build_dataset
 import matplotlib.pyplot as plt
+import os
 
 
 def train(directory):
     loader, scalers = build_dataset(directory)
-    model = JV_LSTM()
+    model = JV_LSTM(input_size=10)
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_fn = nn.MSELoss()
 
@@ -37,4 +38,3 @@ def train(directory):
 
 if __name__ == "__main__":
     train("C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/data/Psk_raw")
-

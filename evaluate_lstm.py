@@ -10,26 +10,20 @@ from build_dataset import build_dataset
 def reconstruct_jv_curve(Voc, Jsc, Pmpp, num_points=100):
     V = np.linspace(0, Voc, num_points)
 
-    # Compute FF safely
     FF = Pmpp / (Voc * Jsc)
     FF = np.clip(FF, 0.01, 0.85)
 
-    # Estimate Vmpp and Impp
     Vmpp = FF * Voc
     Impp = FF * Jsc
 
-    # Safe ratios
     ratio1 = np.clip(1 - Impp / Jsc, 1e-6, 1)
     ratio2 = np.clip(Vmpp / Voc, 1e-6, 0.999999)
 
-    # Compute exponent
     a = np.log(ratio1) / np.log(ratio2)
     a = np.clip(a, 1.2, 10)
 
-    # Construct JV curve
     J = Jsc * (1 - (V / Voc)**a)
     return V, J
-
 
 
 def metrics(y_true, y_pred):
