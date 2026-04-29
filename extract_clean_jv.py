@@ -21,19 +21,51 @@ LOG = {
     "backward_invalid": 0
 }
 
+# def extract_temperature(filepath):
+#     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+#         first = f.readline()
+#         m = re.search(r'(\d+\.?\d*)\s*°?C', first)
+#         return float(m.group(1)) if m else None
 def extract_temperature(filepath):
     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
         first = f.readline()
-        m = re.search(r'(\d+\.?\d*)\s*°?C', first)
+        # Updated regex to handle Silicon format: "Temperature : 20.427C;"
+        m = re.search(r'([\d.]+)\s*°?C', first)
         return float(m.group(1)) if m else None
 
+# def load_raw(filepath):
+#     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+#         f.readline()
+#         data = np.genfromtxt(f, delimiter=';', skip_header=0)
+#     if data.ndim != 2 or data.shape[1] < 5:
+#         return None
+#     return data[:,2], data[:,3], data[:,4]
 def load_raw(filepath):
     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+        # Skip the first line (Temperature line)
         f.readline()
-        data = np.genfromtxt(f, delimiter=';', skip_header=0)
-    if data.ndim != 2 or data.shape[1] < 5:
-        return None
-    return data[:,2], data[:,3], data[:,4]
+        
+        # We use usecols=(2, 3, 4) to target:
+        # Index 2: Voltage
+        # Index 3: Current
+        # Index 4: Irradiance
+        # invalid_raise=False tells numpy to skip lines that are broken instead of crashing
+        try:
+            data = np.genfromtxt(
+                f, 
+                delimiter=';', 
+                usecols=(2, 3, 4), 
+                invalid_raise=False
+            )
+        except Exception as e:
+            print(f"Skipping {filepath.name} due to parsing error: {e}")
+            return None, None, None
+
+    # Check if we actually got data
+    if data is None or data.ndim != 2 or data.shape[1] < 3:
+        return None, None, None
+        
+    return data[:, 0], data[:, 1], data[:, 2]
 
 def compute_params(voltage, current):
     # Voc
