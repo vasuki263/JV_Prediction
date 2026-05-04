@@ -7,17 +7,15 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from extract_clean_jv import extract_all
 import pandas as pd
-from jv_weather_pipeline import build_jv_weather_pipeline
 import os
-
 
 def downsample(v, i, n=100):
     n0 = min(len(v), len(i))
     idx = np.linspace(0, n0-1, n).astype(int)
     return v[idx], i[idx]
 
-
 def build_dataset(directory, batch=32):
+
     samples = extract_all(directory)
     print("DEBUG: number of samples:", len(samples))
 
@@ -37,13 +35,13 @@ def build_dataset(directory, batch=32):
     clean_weather_path = "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_jv_cleaned.csv"
     raw_weather_path = "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_data_10min_cleaned.csv"
 
+    from jv_weather_pipeline import build_jv_weather_pipeline
     if not os.path.exists(clean_weather_path):
         build_jv_weather_pipeline(raw_weather_path, clean_weather_path)
 
     weather = pd.read_csv(clean_weather_path, parse_dates=["timestamp"])
     weather = weather.set_index("timestamp").sort_index()
 
-    # Fit scalers
     all_v = np.concatenate([s["voltage"] for s in samples])
     all_i = np.concatenate([s["current"] for s in samples])
     all_t = np.array([s["temperature"] for s in samples]).reshape(-1, 1)
@@ -65,12 +63,22 @@ def build_dataset(directory, batch=32):
 
     final_X = []
     final_Y = []
-    raw_curves = []   # <-- store raw JV curves
+    raw_curves = []   # <-- now stores full forward/backward curves
 
     for s in samples:
+
         v_raw = s["voltage"]
         i_raw = s["current"]
-        raw_curves.append((v_raw, i_raw))
+
+        raw_curves.append({
+            "file": s["file"],
+            "sweep": s["sweep"],
+            "timestamp": s["timestamp"],
+            "voltage_raw": v_raw,
+            "current_raw": i_raw,
+            "temperature": s["temperature"],
+            "irradiance": s["irradiance"]
+        })
 
         v, i = downsample(v_raw, i_raw)
         v = scalers["voltage"].transform(v.reshape(-1, 1))
@@ -110,9 +118,6 @@ def build_dataset(directory, batch=32):
     X = torch.from_numpy(np.stack(final_X)).float()
     Y = torch.from_numpy(np.stack(final_Y)).float()
 
-    # -----------------------------
-    # TRAIN / VAL / TEST SPLIT
-    # -----------------------------
     X_train, X_temp, Y_train, Y_temp, raw_train, raw_temp = train_test_split(
         X, Y, raw_curves, test_size=0.30, random_state=42
     )

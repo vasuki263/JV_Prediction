@@ -6,6 +6,12 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from model_lstm import JV_LSTM
 from build_dataset import build_dataset
+from hysteresis_analysis import analyze_hysteresis
+from hysteresis_analysis import correlate_hysteresis_with_weather
+import os
+
+def ensure_dir(path):
+    os.makedirs(path, exist_ok=True)
 
 
 # ---------------------------------------------------------
@@ -55,7 +61,8 @@ def plot_true_vs_pred(true, pred, name):
     plt.title(f"True vs Predicted {name}")
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig(f"plot_true_vs_pred_{name}.png", dpi=150)
+    ensure_dir("outputs/plots/true_vs_pred")
+    plt.savefig(f"outputs/plots/true_vs_pred/plot_true_vs_pred_{name}.png", dpi=150)
     plt.close()
 
 
@@ -69,7 +76,8 @@ def plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx):
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"reconstructed_jv_comparison_{idx}.png", dpi=150)
+    ensure_dir("outputs/plots/jv_curves")
+    plt.savefig(f"outputs/plots/jv_curves/reconstructed_jv_comparison_{idx}.png", dpi=150)
     plt.close()
 
 
@@ -83,7 +91,8 @@ def plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx):
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f"raw_vs_pred_jv_{idx}.png", dpi=150)
+    ensure_dir("outputs/plots/jv_curves")
+    plt.savefig(f"outputs/plots/jv_curves/raw_vs_pred_jv_{idx}.png", dpi=150)
     plt.close()
 
 
@@ -146,7 +155,8 @@ def evaluate(directory):
         "FF_true": FF_true,
         "FF_pred": FF_pred
     })
-    df.to_csv("predictions_vs_true.csv", index=False)
+    ensure_dir("outputs/metrics")
+    df.to_csv("outputs/metrics/predictions_vs_true.csv", index=False)
     print("\nSaved predictions_vs_true.csv")
 
     # ---------------------------------------------------------
@@ -164,8 +174,8 @@ def evaluate(directory):
     # ---------------------------------------------------------
     print("\nGenerating JV curve plots...")
 
-    raw_V = [v for v, i in raw_test]
-    raw_I = [i for v, i in raw_test]
+    raw_V = [entry["voltage_raw"] for entry in raw_test]
+    raw_I = [entry["current_raw"] for entry in raw_test]
 
     num_examples = min(5, len(trues))
 
@@ -187,6 +197,18 @@ def evaluate(directory):
         plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx)
 
     print("Saved reconstructed and raw JV curve plots.")
+    print("\nRunning hysteresis analysis...")
+    hyst_results = analyze_hysteresis(raw_test, preds)
+    pd.DataFrame(hyst_results).to_csv("hysteresis_metrics.csv", index=False)
+    ensure_dir("outputs/metrics")
+    pd.DataFrame(hyst_results).to_csv("outputs/metrics/hysteresis_metrics.csv", index=False)
+    print("Saved hysteresis_metrics.csv")
+    weather = pd.read_csv("weather_jv_cleaned.csv", parse_dates=["timestamp"])
+    weather = weather.set_index("timestamp").sort_index()
+
+    corr = correlate_hysteresis_with_weather(hyst_results, weather)
+    print("\nWeather correlation matrix:")
+    print(corr)
 
 
 if __name__ == "__main__":
