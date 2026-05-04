@@ -83,4 +83,4 @@ def train(directory):
 
 
 if __name__ == "__main__":
-    train("C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/data/Psk_raw")
+    train("C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/data/Si_raw")

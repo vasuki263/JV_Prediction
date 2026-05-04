@@ -9,25 +9,27 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 import os
 
+# ---------------------------------------------------------
+# DIRECTORY HELPERS
+# ---------------------------------------------------------
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
 # ---------------------------------------------------------
-# CONFIG: enable/disable smoothing
+# CONFIG
 # ---------------------------------------------------------
 SMOOTH = True
-GAUSSIAN_SIGMA = 4.0   # adjust for more/less smoothing
+GAUSSIAN_SIGMA = 4.0
 
 
 # ---------------------------------------------------------
-# SMOOTHING FUNCTION (Gaussian)
+# SMOOTHING FUNCTION
 # ---------------------------------------------------------
 def smooth_gaussian(v, i, sigma=GAUSSIAN_SIGMA):
     if len(i) < 5:
         return v, i
-    i_smooth = gaussian_filter1d(i, sigma=sigma)
-    return v, i_smooth
+    return v, gaussian_filter1d(i, sigma=sigma)
 
 
 # ---------------------------------------------------------
@@ -40,7 +42,6 @@ def group_forward_backward(raw_list):
         if key not in pairs:
             pairs[key] = {}
         pairs[key][entry["sweep"]] = entry
-
     return {k: v for k, v in pairs.items() if "forward" in v and "backward" in v}
 
 
@@ -85,13 +86,15 @@ def delta_mpp(fwd, bwd):
 # ---------------------------------------------------------
 # PLOTTING RAW/SMOOTHED HYSTERESIS
 # ---------------------------------------------------------
-def plot_hysteresis_pair(fwd, bwd, idx):
+def plot_hysteresis_pair(fwd, bwd, idx, base_plot_dir):
     v_f, i_f = fwd["voltage_raw"], fwd["current_raw"]
     v_b, i_b = bwd["voltage_raw"], bwd["current_raw"]
 
     if SMOOTH:
         v_f, i_f = smooth_gaussian(v_f, i_f)
         v_b, i_b = smooth_gaussian(v_b, i_b)
+
+    ensure_dir(f"{base_plot_dir}/hysteresis_pairs")
 
     plt.figure(figsize=(6,5))
     plt.plot(v_f, i_f, label="Forward sweep", linewidth=2)
@@ -102,8 +105,7 @@ def plot_hysteresis_pair(fwd, bwd, idx):
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    ensure_dir("outputs/plots/hysteresis_pairs")
-    plt.savefig(f"outputs/plots/hysteresis_pairs/hysteresis_pair_{idx}.png", dpi=150)
+    plt.savefig(f"{base_plot_dir}/hysteresis_pairs/hysteresis_pair_{idx}.png", dpi=150)
     plt.close()
 
 
@@ -112,20 +114,18 @@ def plot_hysteresis_pair(fwd, bwd, idx):
 # ---------------------------------------------------------
 def reconstruct_predicted_jv(Voc, Jsc, Pmpp, n=300):
     V = np.linspace(0, Voc, n)
-    FF = Pmpp / (Voc * Jsc + 1e-9)
-    FF = np.clip(FF, 0.01, 0.85)
-
+    FF = np.clip(Pmpp / (Voc * Jsc + 1e-9), 0.01, 0.85)
     Vmpp = FF * Voc
     Impp = FF * Jsc
-
     a = np.log(1 - Impp / Jsc + 1e-9) / np.log(Vmpp / Voc + 1e-9)
     a = np.clip(a, 1.2, 10)
-
     J = Jsc * (1 - (V / Voc)**a)
     return V, J
 
 
-def plot_predicted_hysteresis(preds, idx_fwd, idx_bwd, idx):
+def plot_predicted_hysteresis(preds, idx_fwd, idx_bwd, idx, base_plot_dir):
+    ensure_dir(f"{base_plot_dir}/predicted_hysteresis")
+
     Voc_f, Jsc_f, Pmpp_f = preds[idx_fwd]
     Voc_b, Jsc_b, Pmpp_b = preds[idx_bwd]
 
@@ -141,8 +141,7 @@ def plot_predicted_hysteresis(preds, idx_fwd, idx_bwd, idx):
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    ensure_dir("outputs/plots/predicted_hysteresis")
-    plt.savefig(f"outputs/plots/predicted_hysteresis/predicted_hysteresis_{idx}.png", dpi=150)
+    plt.savefig(f"{base_plot_dir}/predicted_hysteresis/predicted_hysteresis_{idx}.png", dpi=150)
     plt.close()
 
 
@@ -167,20 +166,21 @@ def predicted_hysteresis_index(preds, idx_fwd, idx_bwd):
 
 
 # ---------------------------------------------------------
-# WEATHER CORRELATION + VISUALIZATION + LAGGED ANALYSIS + MODEL
+# WEATHER CORRELATION + VISUALIZATION + MODEL
 # ---------------------------------------------------------
-def plot_correlation_heatmap(corr):
+def plot_correlation_heatmap(corr, base_plot_dir):
+    ensure_dir(f"{base_plot_dir}/heatmaps")
+
     plt.figure(figsize=(10, 8))
     sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f")
     plt.title("Hysteresis–Weather Correlation Heatmap")
     plt.tight_layout()
-    ensure_dir("outputs/plots/heatmaps")
-    plt.savefig("outputs/plots/heatmaps/hysteresis_weather_heatmap.png", dpi=150)
+    plt.savefig(f"{base_plot_dir}/heatmaps/hysteresis_weather_heatmap.png", dpi=150)
     plt.close()
 
 
-def plot_hysteresis_vs_weather(merged_df):
-    import seaborn as sns
+def plot_hysteresis_vs_weather(merged_df, base_plot_dir):
+    ensure_dir(f"{base_plot_dir}/weather_scatter")
 
     variables = ["temp_C", "humidity", "global_radiation", "cloud_cover", "precip_mm"]
 
@@ -189,8 +189,6 @@ def plot_hysteresis_vs_weather(merged_df):
             continue
 
         plt.figure(figsize=(6,5))
-
-        # scatter + regression line
         sns.regplot(
             x=merged_df[var],
             y=merged_df["HI_area"],
@@ -198,7 +196,6 @@ def plot_hysteresis_vs_weather(merged_df):
             line_kws={"color": "red", "linewidth": 2}
         )
 
-        # correlation coefficient
         r = merged_df[[var, "HI_area"]].corr().iloc[0,1]
 
         plt.xlabel(var)
@@ -206,12 +203,12 @@ def plot_hysteresis_vs_weather(merged_df):
         plt.title(f"HI vs {var}  (r = {r:.2f})")
         plt.grid(alpha=0.3)
         plt.tight_layout()
-        ensure_dir("outputs/plots/weather_scatter")
-        plt.savefig(f"outputs/plots/weather_scatter/HI_vs_{var}.png", dpi=150)
+        plt.savefig(f"{base_plot_dir}/weather_scatter/HI_vs_{var}.png", dpi=150)
         plt.close()
 
-def plot_multi_panel_weather(merged_df):
-    import seaborn as sns
+
+def plot_multi_panel_weather(merged_df, base_plot_dir):
+    ensure_dir(f"{base_plot_dir}/weather_multi_panel")
 
     variables = ["temp_C", "humidity", "global_radiation", "cloud_cover", "precip_mm"]
     n = len(variables)
@@ -239,11 +236,11 @@ def plot_multi_panel_weather(merged_df):
     axes[0].set_ylabel("Hysteresis Index (HI_area)")
 
     plt.tight_layout()
-    ensure_dir("outputs/plots/weather_multi_panel")
-    plt.savefig("outputs/plots/weather_multi_panel/HI_vs_weather_multi_panel.png", dpi=150)
+    plt.savefig(f"{base_plot_dir}/weather_multi_panel/HI_vs_weather_multi_panel.png", dpi=150)
     plt.close()
 
-def compute_lagged_correlations(merged_df, lag_minutes=30):
+
+def compute_lagged_correlations(merged_df, base_metric_dir, lag_minutes=30):
     lag = pd.Timedelta(minutes=lag_minutes)
     lagged = merged_df.copy()
 
@@ -256,23 +253,17 @@ def compute_lagged_correlations(merged_df, lag_minutes=30):
     numeric_only = lagged.select_dtypes(include=[np.number])
     corr_lagged = numeric_only.corr()
 
-    corr_lagged.to_csv("hysteresis_weather_lagged_correlation.csv")
-    ensure_dir("outputs/metrics")
-    corr_lagged.to_csv("outputs/metrics/hysteresis_weather_lagged_correlation.csv")
-
+    ensure_dir(base_metric_dir)
+    corr_lagged.to_csv(f"{base_metric_dir}/hysteresis_weather_lagged_correlation.csv")
     print("Saved hysteresis_weather_lagged_correlation.csv")
 
     return corr_lagged
 
 
-def build_weather_hysteresis_model(merged_df):
-    # Your actual weather columns
+def build_weather_hysteresis_model(merged_df, base_metric_dir):
     features = ["temp_C", "humidity", "global_radiation", "cloud_cover", "precip_mm"]
 
-    # Keep only rows where HI_area exists
     df = merged_df.dropna(subset=["HI_area"])
-
-    # Keep only columns that actually exist
     features = [f for f in features if f in df.columns]
 
     if len(features) == 0:
@@ -293,43 +284,52 @@ def build_weather_hysteresis_model(merged_df):
     print(f"Weather-driven hysteresis prediction R² = {score:.3f}")
 
     coef_df = pd.DataFrame({"feature": features, "coef": model.coef_})
-    ensure_dir("outputs/metrics")
-    coef_df.to_csv("outputs/metrics/weather_hysteresis_model_coefficients.csv")
+
+    ensure_dir(base_metric_dir)
+    coef_df.to_csv(f"{base_metric_dir}/weather_hysteresis_model_coefficients.csv", index=False)
+
     return model, score
 
 
+# ---------------------------------------------------------
+# WEATHER CORRELATION WRAPPER
+# ---------------------------------------------------------
+def correlate_hysteresis_with_weather(hyst_results, weather_df, device):
+    base_plot_dir = f"outputs/{device}/plots"
+    base_metric_dir = f"outputs/{device}/metrics"
 
-def correlate_hysteresis_with_weather(hyst_results, weather_df):
     df = pd.DataFrame(hyst_results)
     df = df.set_index("timestamp").sort_index()
 
     df.index = df.index.tz_localize(None)
     weather_df.index = weather_df.index.tz_localize(None)
-    print("Weather columns:", weather_df.columns.tolist())
 
     weather_aligned = weather_df.reindex(df.index, method="nearest")
-
     merged = pd.concat([df, weather_aligned], axis=1)
 
     numeric_only = merged.select_dtypes(include=[np.number])
     corr = numeric_only.corr()
-    ensure_dir("outputs/metrics")
-    corr.to_csv("outputs/metrics/hysteresis_weather_correlation.csv")
+
+    ensure_dir(base_metric_dir)
+    corr.to_csv(f"{base_metric_dir}/hysteresis_weather_correlation.csv")
     print("Saved hysteresis_weather_correlation.csv")
 
-    plot_correlation_heatmap(corr)
-    plot_hysteresis_vs_weather(merged)
-    plot_multi_panel_weather(merged)
-    compute_lagged_correlations(merged)
-    build_weather_hysteresis_model(merged)
+    plot_correlation_heatmap(corr, base_plot_dir)
+    plot_hysteresis_vs_weather(merged, base_plot_dir)
+    plot_multi_panel_weather(merged, base_plot_dir)
+    compute_lagged_correlations(merged, base_metric_dir)
+    build_weather_hysteresis_model(merged, base_metric_dir)
 
     return corr
 
 
 # ---------------------------------------------------------
-# MAIN ANALYSIS FUNCTION
+# MAIN HYSTERESIS ANALYSIS
 # ---------------------------------------------------------
-def analyze_hysteresis(raw_test, preds):
+def analyze_hysteresis(raw_test, preds, device):
+    base_plot_dir = f"outputs/{device}/plots"
+    base_metric_dir = f"outputs/{device}/metrics"
+
     pairs = group_forward_backward(raw_test)
     print(f"Found {len(pairs)} forward/backward JV pairs")
 
@@ -348,7 +348,7 @@ def analyze_hysteresis(raw_test, preds):
             idx_fwd = idx * 2
             idx_bwd = idx * 2 + 1
 
-            plot_predicted_hysteresis(preds, idx_fwd, idx_bwd, idx)
+            plot_predicted_hysteresis(preds, idx_fwd, idx_bwd, idx, base_plot_dir)
             HI_pred = predicted_hysteresis_index(preds, idx_fwd, idx_bwd)
         else:
             HI_pred = None
@@ -363,7 +363,7 @@ def analyze_hysteresis(raw_test, preds):
             "(delta)Pmpp": dm
         })
 
-        plot_hysteresis_pair(fwd, bwd, idx)
+        plot_hysteresis_pair(fwd, bwd, idx, base_plot_dir)
 
     print("Saved smoothed hysteresis plots.")
     return results

@@ -6,12 +6,22 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from model_lstm import JV_LSTM
 from build_dataset import build_dataset
-from hysteresis_analysis import analyze_hysteresis
-from hysteresis_analysis import correlate_hysteresis_with_weather
+from hysteresis_analysis import analyze_hysteresis, correlate_hysteresis_with_weather
 import os
 
+# ---------------------------------------------------------
+# DIRECTORY HELPERS
+# ---------------------------------------------------------
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
+
+def get_device_type(directory):
+    name = directory.lower()
+    if "psk" in name or "perov" in name:
+        return "Perovskite"
+    if "si" in name or "silicon" in name:
+        return "Silicon"
+    return "Unknown"
 
 
 # ---------------------------------------------------------
@@ -52,7 +62,7 @@ def metrics(y_true, y_pred):
 # ---------------------------------------------------------
 # PLOTTING HELPERS
 # ---------------------------------------------------------
-def plot_true_vs_pred(true, pred, name):
+def plot_true_vs_pred(true, pred, name, base_plot_dir):
     plt.figure(figsize=(6, 6))
     plt.scatter(true, pred, alpha=0.6, edgecolor='k')
     plt.plot([true.min(), true.max()], [true.min(), true.max()], 'r--', linewidth=2)
@@ -61,12 +71,13 @@ def plot_true_vs_pred(true, pred, name):
     plt.title(f"True vs Predicted {name}")
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    ensure_dir("outputs/plots/true_vs_pred")
-    plt.savefig(f"outputs/plots/true_vs_pred/plot_true_vs_pred_{name}.png", dpi=150)
+
+    ensure_dir(f"{base_plot_dir}/true_vs_pred")
+    plt.savefig(f"{base_plot_dir}/true_vs_pred/plot_true_vs_pred_{name}.png", dpi=150)
     plt.close()
 
 
-def plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx):
+def plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx, base_plot_dir):
     plt.figure(figsize=(6, 5))
     plt.plot(V_true, J_true, label="True Reconstructed JV", linewidth=2)
     plt.plot(V_pred, J_pred, "--", label="Predicted JV", linewidth=2)
@@ -76,12 +87,13 @@ def plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx):
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    ensure_dir("outputs/plots/jv_curves")
-    plt.savefig(f"outputs/plots/jv_curves/reconstructed_jv_comparison_{idx}.png", dpi=150)
+
+    ensure_dir(f"{base_plot_dir}/jv_curves")
+    plt.savefig(f"{base_plot_dir}/jv_curves/reconstructed_jv_comparison_{idx}.png", dpi=150)
     plt.close()
 
 
-def plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx):
+def plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx, base_plot_dir):
     plt.figure(figsize=(6, 5))
     plt.plot(V_raw, I_raw, label="Raw JV", linewidth=2)
     plt.plot(V_pred, J_pred, "--", label="Predicted JV", linewidth=2)
@@ -91,8 +103,9 @@ def plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx):
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    ensure_dir("outputs/plots/jv_curves")
-    plt.savefig(f"outputs/plots/jv_curves/raw_vs_pred_jv_{idx}.png", dpi=150)
+
+    ensure_dir(f"{base_plot_dir}/jv_curves")
+    plt.savefig(f"{base_plot_dir}/jv_curves/raw_vs_pred_jv_{idx}.png", dpi=150)
     plt.close()
 
 
@@ -101,7 +114,15 @@ def plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx):
 # ---------------------------------------------------------
 def evaluate(directory):
 
-    # IMPORTANT: use test_loader + raw curves
+    # Detect device type
+    device = get_device_type(directory)
+    base_plot_dir = f"outputs/{device}/plots"
+    base_metric_dir = f"outputs/{device}/metrics"
+
+    ensure_dir(base_plot_dir)
+    ensure_dir(base_metric_dir)
+
+    # Load dataset
     _, _, test_loader, scalers, raw_test = build_dataset(directory)
 
     ckpt = torch.load("jv_model.pth")
@@ -124,26 +145,7 @@ def evaluate(directory):
     FF_pred = preds[:, 2] / (preds[:, 0] * preds[:, 1])
 
     # ---------------------------------------------------------
-    # PRINT METRICS
-    # ---------------------------------------------------------
-    names = ["Voc", "Jsc", "Pmpp"]
-    for i, name in enumerate(names):
-        mae, mse, rmse, r2 = metrics(trues[:, i], preds[:, i])
-        print(f"\n{name}:")
-        print(f" MAE  = {mae:.4f}")
-        print(f" MSE  = {mse:.4f}")
-        print(f" RMSE = {rmse:.4f}")
-        print(f" R²   = {r2:.4f}")
-
-    mae, mse, rmse, r2 = metrics(FF_true, FF_pred)
-    print("\nFF:")
-    print(f" MAE  = {mae:.4f}")
-    print(f" MSE  = {mse:.4f}")
-    print(f" RMSE = {rmse:.4f}")
-    print(f" R²   = {r2:.4f}")
-
-    # ---------------------------------------------------------
-    # SAVE CSV
+    # SAVE METRICS CSV
     # ---------------------------------------------------------
     df = pd.DataFrame({
         "Voc_true": trues[:, 0],
@@ -155,22 +157,22 @@ def evaluate(directory):
         "FF_true": FF_true,
         "FF_pred": FF_pred
     })
-    ensure_dir("outputs/metrics")
-    df.to_csv("outputs/metrics/predictions_vs_true.csv", index=False)
+
+    df.to_csv(f"{base_metric_dir}/predictions_vs_true.csv", index=False)
     print("\nSaved predictions_vs_true.csv")
 
     # ---------------------------------------------------------
     # TRUE VS PREDICTED PLOTS
     # ---------------------------------------------------------
-    plot_true_vs_pred(trues[:, 0], preds[:, 0], "Voc")
-    plot_true_vs_pred(trues[:, 1], preds[:, 1], "Jsc")
-    plot_true_vs_pred(trues[:, 2], preds[:, 2], "Pmpp")
-    plot_true_vs_pred(FF_true, FF_pred, "FF")
+    plot_true_vs_pred(trues[:, 0], preds[:, 0], "Voc", base_plot_dir)
+    plot_true_vs_pred(trues[:, 1], preds[:, 1], "Jsc", base_plot_dir)
+    plot_true_vs_pred(trues[:, 2], preds[:, 2], "Pmpp", base_plot_dir)
+    plot_true_vs_pred(FF_true, FF_pred, "FF", base_plot_dir)
 
     print("Saved true vs predicted plots.")
 
     # ---------------------------------------------------------
-    # JV CURVE PLOTS (RAW + RECONSTRUCTED)
+    # JV CURVE PLOTS
     # ---------------------------------------------------------
     print("\nGenerating JV curve plots...")
 
@@ -183,33 +185,36 @@ def evaluate(directory):
         Voc_t, Jsc_t, Pmpp_t = trues[idx]
         Voc_p, Jsc_p, Pmpp_p = preds[idx]
 
-        # Reconstructed true JV
         V_true, J_true = reconstruct_jv_curve(Voc_t, Jsc_t, Pmpp_t)
-        # Predicted JV
         V_pred, J_pred = reconstruct_jv_curve(Voc_p, Jsc_p, Pmpp_p)
 
-        # Raw JV
         V_raw = raw_V[idx]
         I_raw = raw_I[idx]
 
-        # Save both plots
-        plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx)
-        plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx)
+        plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx, base_plot_dir)
+        plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx, base_plot_dir)
 
     print("Saved reconstructed and raw JV curve plots.")
+
+    # ---------------------------------------------------------
+    # HYSTERESIS ANALYSIS
+    # ---------------------------------------------------------
     print("\nRunning hysteresis analysis...")
-    hyst_results = analyze_hysteresis(raw_test, preds)
-    pd.DataFrame(hyst_results).to_csv("hysteresis_metrics.csv", index=False)
-    ensure_dir("outputs/metrics")
-    pd.DataFrame(hyst_results).to_csv("outputs/metrics/hysteresis_metrics.csv", index=False)
+
+    hyst_results = analyze_hysteresis(raw_test, preds, device)
+    pd.DataFrame(hyst_results).to_csv(f"{base_metric_dir}/hysteresis_metrics.csv", index=False)
     print("Saved hysteresis_metrics.csv")
+
+    # ---------------------------------------------------------
+    # WEATHER CORRELATION
+    # ---------------------------------------------------------
     weather = pd.read_csv("weather_jv_cleaned.csv", parse_dates=["timestamp"])
     weather = weather.set_index("timestamp").sort_index()
 
-    corr = correlate_hysteresis_with_weather(hyst_results, weather)
+    corr = correlate_hysteresis_with_weather(hyst_results, weather, device)
     print("\nWeather correlation matrix:")
     print(corr)
 
 
 if __name__ == "__main__":
-    evaluate("C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/data/Psk_raw")
+    evaluate("C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/data/Si_raw")
