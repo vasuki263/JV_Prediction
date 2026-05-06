@@ -7,11 +7,15 @@ from model_lstm import JV_LSTM
 from build_dataset import build_dataset
 import matplotlib.pyplot as plt
 
+def train(directory, influx_csv):
 
-def train(directory):
-    train_loader, val_loader, test_loader, scalers, raw_test = build_dataset(directory)
+    # Load dataset with InfluxDB features
+    train_loader, val_loader, test_loader, scalers, raw_test = \
+        build_dataset(directory, influx_csv=influx_csv)
 
-    model = JV_LSTM(input_size=10)
+    # IMPORTANT: Updated input size = 17
+    model = JV_LSTM(input_size=17)
+
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_fn = nn.MSELoss()
 
@@ -83,4 +87,7 @@ def train(directory):
 
 
 if __name__ == "__main__":
-    train("C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/data/Si_raw")
+    train(
+        directory="C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/data/Psk_raw",
+        influx_csv="C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/perovskite_influx.csv"
+    )
