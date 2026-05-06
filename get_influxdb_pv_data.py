@@ -2,26 +2,37 @@ from influxdb_client import InfluxDBClient
 import pandas as pd
 from datetime import datetime
 from typing import List, Optional
+from dotenv import load_dotenv
+import os
+
+# ---------------------------------------------------------
+# LOAD .env FILE
+# ---------------------------------------------------------
+load_dotenv()
+
+INFLUX_URL = os.getenv("INFLUX_URL")
+INFLUX_TOKEN = os.getenv("INFLUX_TOKEN")
+INFLUX_ORG = os.getenv("INFLUX_ORG")
+INFLUX_BUCKET = os.getenv("INFLUX_BUCKET")
+
+if not all([INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET]):
+    raise ValueError("Missing one or more required InfluxDB environment variables.")
 
 
 class InfluxDBDataExporter:
     """
-        Class for querying time-aggregated ParkData from InfluxDB
-        and exporting results to pandas DataFrames and CSV files.
+    Class for querying time-aggregated ParkData from InfluxDB
+    and exporting results to pandas DataFrames and CSV files.
     """
 
     MEASUREMENT = "ParkData"
-    DEFAULT_BUCKET = "Uni"
 
-    def __init__(self, url: str, token: str, org: str, bucket: str = DEFAULT_BUCKET, verify_ssl: bool = True, ) -> None:
-        """
-        Args:
-            url: InfluxDB server URL
-            token: InfluxDB authentication token
-            org: InfluxDB organization ID or name
-            bucket: Bucket name (default: "Uni")
-            verify_ssl: Whether to verify SSL certificates
-        """
+    def __init__(self,
+                 url: str = INFLUX_URL,
+                 token: str = INFLUX_TOKEN,
+                 org: str = INFLUX_ORG,
+                 bucket: str = INFLUX_BUCKET,
+                 verify_ssl: bool = True):
 
         self.url = url
         self.token = token
@@ -31,10 +42,10 @@ class InfluxDBDataExporter:
         self.client: Optional[InfluxDBClient] = None
         self._connect()
 
+    # ---------------------------------------------------------
+    # CONNECT
+    # ---------------------------------------------------------
     def _connect(self) -> None:
-        """
-        Establish connection to InfluxDB and run a health check.
-        """
         try:
             self.client = InfluxDBClient(
                 url=self.url,
@@ -45,25 +56,17 @@ class InfluxDBDataExporter:
             print("\nConnected to InfluxDB")
 
             health = self.client.health()
-            print(f"\nHealth check: {health.status} — {health.message}")
+            print(f"Health check: {health.status} — {health.message}")
 
         except Exception as e:
             print(f"Connection error: {e}")
             self.client = None
             raise
 
+    # ---------------------------------------------------------
+    # QUERY BUILDER
+    # ---------------------------------------------------------
     def _build_query(self, module_names: List[str], start_date: str, end_date: str) -> str:
-        """
-            Build a Flux query string.
-
-            Args:
-                module_names: List of module names
-                start_date: Start date (YYYY-MM-DD)
-                end_date: End date (YYYY-MM-DD)
-
-            Returns:
-                Flux query string
-        """
         name_filter = " or ".join([f'r.Name == "{name}"' for name in module_names])
 
         query = f"""
@@ -77,21 +80,12 @@ class InfluxDBDataExporter:
         """
         return query
 
-    def query_data(self, module_names: List[str], start_date: str, end_date: str, save_to_csv: bool = True,
-                   output_path: Optional[str] = None) -> pd.DataFrame:
-        """
-            Query InfluxDB data and return it as a DataFrame.
+    # ---------------------------------------------------------
+    # QUERY EXECUTION
+    # ---------------------------------------------------------
+    def query_data(self, module_names: List[str], start_date: str, end_date: str,
+                   save_to_csv: bool = True, output_path: Optional[str] = None) -> pd.DataFrame:
 
-            Args:
-                module_names: List of module names to query
-                start_date: Start date (YYYY-MM-DD)
-                end_date: End date (YYYY-MM-DD)
-                save_to_csv: Save results to CSV if True
-                output_path: Optional custom CSV path
-
-            Returns:
-                Pandas DataFrame (empty if no data returned)
-        """
         if self.client is None:
             raise ConnectionError("Not connected to InfluxDB.")
 
@@ -99,7 +93,7 @@ class InfluxDBDataExporter:
             raise ValueError("Module names list cannot be empty.")
 
         try:
-            print(f"Querying {len(module_names)} modules")
+            print(f"\nQuerying {len(module_names)} modules")
             print(f"Date range: {start_date} to {end_date}")
             print(f"Modules: {', '.join(module_names)}")
 
@@ -118,7 +112,7 @@ class InfluxDBDataExporter:
             if save_to_csv:
                 if output_path is None:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    output_path = f"data_export_{timestamp}.csv"
+                    output_path = f"influx_export_{timestamp}.csv"
 
                 df.to_csv(output_path, index=False)
                 print(f"Data saved to: {output_path}")
@@ -130,11 +124,10 @@ class InfluxDBDataExporter:
             print(f"Query error: {e}")
             raise
 
+    # ---------------------------------------------------------
+    # MODULE LISTS
+    # ---------------------------------------------------------
     def get_si_modules(self) -> List[str]:
-        """
-        Returns:
-            List of silicon module names
-        """
         return [
             "Atersa_1_1", "Atersa_2_1", "Atersa_3_1", "Atersa_4_1", "Atersa_5_1", "Atersa_6_1",
             "Atersa_1-1", "Atersa_2-1", "Atersa_3-1", "Atersa_4-1", "Atersa_5-1", "Atersa_6-1",
@@ -147,13 +140,9 @@ class InfluxDBDataExporter:
         ]
 
     def get_psc_modules(self) -> List[str]:
-        """
-        Returns:
-            List of Perovskite module names
-        """
         return [
-            "Perovskite_1", "Perovskite_1_1",  # same modules different names
-            "Perovskite_2", "Perovskite_1_2",  # same modules different names
+            "Perovskite_1", "Perovskite_1_1",
+            "Perovskite_2", "Perovskite_1_2",
             "Perovskite_1_3",
             "Perovskite_1_4",
             "Perovskite_2_1",
@@ -168,46 +157,40 @@ class InfluxDBDataExporter:
         ]
 
     def get_all_modules(self) -> List[str]:
-        """
-            Returns:
-                Combined list of all module names
-        """
         return self.get_si_modules() + self.get_psc_modules()
 
+    # ---------------------------------------------------------
+    # CLOSE CONNECTION
+    # ---------------------------------------------------------
     def close(self):
-        """
-            Close the InfluxDB connection.
-        """
         if self.client is not None:
             self.client.close()
             print("InfluxDB connection closed")
 
-exporter = InfluxDBDataExporter(
-    url="https://park3infl.mahmoudzadeh.net:8086",
-    token="GNS7lqYctgG_gYT_LRgaBfFXveCMNGxabll3GtmdgvWJM-NWjXzhapRCzDtag4PhblQzEavip-uwxPikPDcn5Q==",
-    org="IPV",
-    bucket="Uni"
-)
 
-psk_modules = exporter.get_psc_modules()
+# ---------------------------------------------------------
+# EXAMPLE USAGE (now using .env)
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    exporter = InfluxDBDataExporter()
 
-df = exporter.query_data(
-    module_names=psk_modules,
-    start_date="2026-01-01",
-    end_date="2026-04-01",
-    save_to_csv=True,
-    output_path="perovskite_influx.csv"
-)
+    psk_modules = exporter.get_psc_modules()
+    df_psk = exporter.query_data(
+        module_names=psk_modules,
+        start_date="2026-01-01",
+        end_date="2026-04-01",
+        save_to_csv=True,
+        output_path="perovskite_influx.csv"
+    )
 
-si_modules = exporter.get_si_modules()
-df_si = exporter.query_data(
-    module_names=si_modules,
-    start_date="2026-01-01",
-    end_date="2026-04-01",
-    save_to_csv=True,
-    output_path="silicon_influx.csv"
-)
+    si_modules = exporter.get_si_modules()
+    df_si = exporter.query_data(
+        module_names=si_modules,
+        start_date="2026-01-01",
+        end_date="2026-04-01",
+        save_to_csv=True,
+        output_path="silicon_influx.csv"
+    )
 
-
-print(df.head())
-print(df_si.head())
+    print(df_psk.head())
+    print(df_si.head())

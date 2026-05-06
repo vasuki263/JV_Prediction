@@ -10,6 +10,7 @@ from hysteresis_analysis import analyze_hysteresis, correlate_hysteresis_with_we
 import os
 import shutil
 
+
 # ---------------------------------------------------------
 # DIRECTORY HELPERS
 # ---------------------------------------------------------
@@ -21,6 +22,10 @@ def reset_dir(path):
         shutil.rmtree(path)
     os.makedirs(path, exist_ok=True)
 
+
+# ---------------------------------------------------------
+# DEVICE TYPE DETECTION
+# ---------------------------------------------------------
 def get_device_type(directory):
     name = directory.lower()
     if "psk" in name or "perov" in name:
@@ -77,11 +82,11 @@ def plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx, base_plot_dir):
     ensure_dir(f"{base_plot_dir}/jv_curves")
 
     plt.figure(figsize=(6, 5))
-    plt.plot(V_true, J_true, label="True Reconstructed JV", linewidth=2)
+    plt.plot(V_true, J_true, label="True JV", linewidth=2)
     plt.plot(V_pred, J_pred, "--", label="Predicted JV", linewidth=2)
     plt.xlabel("Voltage (V)")
     plt.ylabel("Current (A)")
-    plt.title(f"Reconstructed JV Comparison #{idx}")
+    plt.title(f"Reconstructed JV #{idx}")
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -97,7 +102,7 @@ def plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx, base_plot_dir):
     plt.plot(V_pred, J_pred, "--", label="Predicted JV", linewidth=2)
     plt.xlabel("Voltage (V)")
     plt.ylabel("Current (A)")
-    plt.title(f"Raw JV vs Predicted JV #{idx}")
+    plt.title(f"Raw vs Predicted JV #{idx}")
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -110,13 +115,16 @@ def plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx, base_plot_dir):
 # ---------------------------------------------------------
 def evaluate(directory,
              influx_csv,
-             weather_csv):
+             weather_csv,
+             model_path="jv_model.pth",
+             run_dir=None):
 
     device = get_device_type(directory)
+
+    # ALWAYS save evaluation outputs to outputs/<tech>/
     base_plot_dir = f"outputs/{device}/plots"
     base_metric_dir = f"outputs/{device}/metrics"
 
-    # Clean top-level outputs once per run
     reset_dir(base_plot_dir)
     reset_dir(base_metric_dir)
 
@@ -124,7 +132,7 @@ def evaluate(directory,
     _, _, test_loader, scalers, raw_test = build_dataset(directory, influx_csv=influx_csv)
 
     # Load model
-    ckpt = torch.load("jv_model.pth", map_location="cpu")
+    ckpt = torch.load(model_path, map_location="cpu")
     model = JV_LSTM(input_size=17)
     model.load_state_dict(ckpt["model"])
     model.eval()
@@ -158,55 +166,32 @@ def evaluate(directory,
     })
 
     df.to_csv(f"{base_metric_dir}/predictions_vs_true.csv", index=False)
-    print("Saved predictions_vs_true.csv")
 
     # True vs predicted plots
     plot_true_vs_pred(trues[:, 0], preds[:, 0], "Voc", base_plot_dir)
     plot_true_vs_pred(trues[:, 1], preds[:, 1], "Jsc", base_plot_dir)
     plot_true_vs_pred(trues[:, 2], preds[:, 2], "Pmpp", base_plot_dir)
     plot_true_vs_pred(FF_true, FF_pred, "FF", base_plot_dir)
-    print("Saved true vs predicted plots.")
 
     # JV curve plots
-    print("Generating JV curve plots...")
     raw_V = [entry["voltage_raw"] for entry in raw_test]
     raw_I = [entry["current_raw"] for entry in raw_test]
 
-    num_examples = min(5, len(trues))
-
-    for idx in range(num_examples):
-        Voc_t, Jsc_t, Pmpp_t = trues[idx]
-        Voc_p, Jsc_p, Pmpp_p = preds[idx]
-
-        V_true, J_true = reconstruct_jv_curve(Voc_t, Jsc_t, Pmpp_t)
-        V_pred, J_pred = reconstruct_jv_curve(Voc_p, Jsc_p, Pmpp_p)
-
-        V_raw = raw_V[idx]
-        I_raw = raw_I[idx]
+    for idx in range(min(5, len(trues))):
+        V_true, J_true = reconstruct_jv_curve(*trues[idx])
+        V_pred, J_pred = reconstruct_jv_curve(*preds[idx])
 
         plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx, base_plot_dir)
-        plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx, base_plot_dir)
-
-    print("Saved reconstructed and raw JV curve plots.")
+        plot_raw_vs_pred(raw_V[idx], raw_I[idx], V_pred, J_pred, idx, base_plot_dir)
 
     # Hysteresis analysis
-    print("Running hysteresis analysis...")
     hyst_results = analyze_hysteresis(raw_test, preds, device)
     pd.DataFrame(hyst_results).to_csv(f"{base_metric_dir}/hysteresis_metrics.csv", index=False)
-    print("Saved hysteresis_metrics.csv")
 
     # Weather correlation
     weather = pd.read_csv(weather_csv, parse_dates=["timestamp"])
     weather = weather.set_index("timestamp").sort_index()
 
     corr = correlate_hysteresis_with_weather(hyst_results, weather, device)
-    print("Weather correlation matrix:")
-    print(corr)
 
-
-if __name__ == "__main__":
-    evaluate(
-        "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/data/Psk_raw",
-        influx_csv="C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/perovskite_influx.csv",
-        weather_csv="C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_jv_cleaned.csv"
-    )
+    return corr

@@ -1,0 +1,16 @@
+2026-05-06 19:42:23,019 - INFO - Starting full pipeline for Silicon
+2026-05-06 19:42:23,020 - INFO - Run directory: runs/2026-05-06_19-42-23_Silicon
+2026-05-06 19:42:23,020 - INFO - === STEP 0: Downloading latest InfluxDB data for Silicon ===
+2026-05-06 19:42:26,282 - INFO - InfluxDB export complete for Silicon. Saved to silicon_influx.csv
+2026-05-06 19:42:26,295 - INFO - === STEP 1: Building dataset for Silicon ===
+2026-05-06 19:42:48,749 - INFO - Dataset build complete for Silicon.
+
+2026-05-06 19:42:48,750 - INFO - === STEP 2: Training LSTM model for Silicon ===
+2026-05-06 19:43:49,142 - INFO - Training complete for Silicon.
+
+2026-05-06 19:43:49,143 - INFO - === STEP 3: Evaluating model for Silicon ===
+2026-05-06 19:44:34,616 - INFO - Evaluation complete for Silicon.
+
+2026-05-06 19:44:34,616 - INFO - Pipeline finished for Silicon
+2026-05-06 19:44:34,617 - INFO - Evaluation outputs saved in: outputs/Silicon/
+
