@@ -1,12 +1,11 @@
-# evaluate_lstm.py
+# evaluate_lstm.py — FINAL VERSION (WEATHER‑AWARE, FULL JV PLOTTING)
 
 import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from model_lstm import JV_LSTM
-from build_dataset import build_dataset
-from hysteresis_analysis import analyze_hysteresis, correlate_hysteresis_with_weather
+from build_dataset import build_dataset, nearest_timestamp
 import os
 import shutil
 
@@ -85,7 +84,7 @@ def plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx, base_plot_dir):
     plt.plot(V_true, J_true, label="True JV", linewidth=2)
     plt.plot(V_pred, J_pred, "--", label="Predicted JV", linewidth=2)
     plt.xlabel("Voltage (V)")
-    plt.ylabel("Current (A)")
+    plt.ylabel("Current Density (A)")
     plt.title(f"Reconstructed JV #{idx}")
     plt.grid(alpha=0.3)
     plt.legend()
@@ -101,7 +100,7 @@ def plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx, base_plot_dir):
     plt.plot(V_raw, I_raw, label="Raw JV", linewidth=2)
     plt.plot(V_pred, J_pred, "--", label="Predicted JV", linewidth=2)
     plt.xlabel("Voltage (V)")
-    plt.ylabel("Current (A)")
+    plt.ylabel("Current Density (A)")
     plt.title(f"Raw vs Predicted JV #{idx}")
     plt.grid(alpha=0.3)
     plt.legend()
@@ -110,18 +109,29 @@ def plot_raw_vs_pred(V_raw, I_raw, V_pred, J_pred, idx, base_plot_dir):
     plt.close()
 
 
+def plot_error_vs_weather(errors, weather_values, name, base_plot_dir):
+    ensure_dir(f"{base_plot_dir}/weather_plots")
+
+    plt.figure(figsize=(6,5))
+    plt.scatter(weather_values, errors, alpha=0.6, edgecolor='k')
+    plt.xlabel(name)
+    plt.ylabel("Absolute Error")
+    plt.title(f"Error vs {name}")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f"{base_plot_dir}/weather_plots/error_vs_{name}.png", dpi=150)
+    plt.close()
+
+
 # ---------------------------------------------------------
 # MAIN EVALUATION FUNCTION
 # ---------------------------------------------------------
 def evaluate(directory,
-             influx_csv,
              weather_csv,
-             model_path="jv_model.pth",
-             run_dir=None):
+             model_path="jv_model.pth"):
 
     device = get_device_type(directory)
 
-    # ALWAYS save evaluation outputs to outputs/<tech>/
     base_plot_dir = f"outputs/{device}/plots"
     base_metric_dir = f"outputs/{device}/metrics"
 
@@ -129,11 +139,14 @@ def evaluate(directory,
     reset_dir(base_metric_dir)
 
     # Load dataset
-    _, _, test_loader, scalers, raw_test = build_dataset(directory, influx_csv=influx_csv)
+    _, _, test_loader, scalers, raw_test = build_dataset(
+        directory,
+        clean_weather_path=weather_csv
+    )
 
     # Load model
     ckpt = torch.load(model_path, map_location="cpu")
-    model = JV_LSTM(input_size=17)
+    model = JV_LSTM(input_size=10)
     model.load_state_dict(ckpt["model"])
     model.eval()
 
@@ -142,8 +155,8 @@ def evaluate(directory,
     with torch.no_grad():
         for X, Y in test_loader:
             out = model(X)
-            preds.append(out.detach().cpu().numpy())
-            trues.append(Y.detach().cpu().numpy())
+            preds.append(out.cpu().numpy())
+            trues.append(Y.cpu().numpy())
 
     preds = np.vstack(preds)
     trues = np.vstack(trues)
@@ -151,9 +164,12 @@ def evaluate(directory,
     preds = scalers["targets"].inverse_transform(preds)
     trues = scalers["targets"].inverse_transform(trues)
 
-    FF_true = trues[:, 2] / (trues[:, 0] * trues[:, 1] + 1e-9)
-    FF_pred = preds[:, 2] / (preds[:, 0] * preds[:, 1] + 1e-9)
+    # Compute errors
+    err_Voc = np.abs(trues[:,0] - preds[:,0])
+    err_Jsc = np.abs(trues[:,1] - preds[:,1])
+    err_Pmpp = np.abs(trues[:,2] - preds[:,2])
 
+    # Save predictions
     df = pd.DataFrame({
         "Voc_true": trues[:, 0],
         "Voc_pred": preds[:, 0],
@@ -161,19 +177,26 @@ def evaluate(directory,
         "Jsc_pred": preds[:, 1],
         "Pmpp_true": trues[:, 2],
         "Pmpp_pred": preds[:, 2],
-        "FF_true": FF_true,
-        "FF_pred": FF_pred
+        "err_Voc": err_Voc,
+        "err_Jsc": err_Jsc,
+        "err_Pmpp": err_Pmpp
     })
-
     df.to_csv(f"{base_metric_dir}/predictions_vs_true.csv", index=False)
 
-    # True vs predicted plots
+    # ---------------------------------------------------------
+    # TRUE VS PREDICTED PLOTS
+    # ---------------------------------------------------------
     plot_true_vs_pred(trues[:, 0], preds[:, 0], "Voc", base_plot_dir)
     plot_true_vs_pred(trues[:, 1], preds[:, 1], "Jsc", base_plot_dir)
     plot_true_vs_pred(trues[:, 2], preds[:, 2], "Pmpp", base_plot_dir)
+
+    FF_true = trues[:, 2] / (trues[:, 0] * trues[:, 1] + 1e-9)
+    FF_pred = preds[:, 2] / (preds[:, 0] * preds[:, 1] + 1e-9)
     plot_true_vs_pred(FF_true, FF_pred, "FF", base_plot_dir)
 
-    # JV curve plots
+    # ---------------------------------------------------------
+    # JV CURVE PLOTS
+    # ---------------------------------------------------------
     raw_V = [entry["voltage_raw"] for entry in raw_test]
     raw_I = [entry["current_raw"] for entry in raw_test]
 
@@ -184,14 +207,45 @@ def evaluate(directory,
         plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx, base_plot_dir)
         plot_raw_vs_pred(raw_V[idx], raw_I[idx], V_pred, J_pred, idx, base_plot_dir)
 
-    # Hysteresis analysis
-    hyst_results = analyze_hysteresis(raw_test, preds, device)
-    pd.DataFrame(hyst_results).to_csv(f"{base_metric_dir}/hysteresis_metrics.csv", index=False)
-
-    # Weather correlation
+    # ---------------------------------------------------------
+    # WEATHER ANALYSIS
+    # ---------------------------------------------------------
     weather = pd.read_csv(weather_csv, parse_dates=["timestamp"])
     weather = weather.set_index("timestamp").sort_index()
 
-    corr = correlate_hysteresis_with_weather(hyst_results, weather, device)
+    weather_vals = []
+    for entry in raw_test:
+        ts = pd.Timestamp(entry["timestamp"])
+        if ts.tz is None:
+            ts = ts.tz_localize("UTC")
+        w = nearest_timestamp(weather, ts)
+        weather_vals.append([
+            w["temp_C"], w["humidity"], w["cloud_cover"],
+            w["precip_mm"], w["global_radiation"]
+        ])
 
-    return corr
+    weather_vals = np.array(weather_vals)
+
+    # Weather‑error plots
+    plot_error_vs_weather(err_Pmpp, weather_vals[:,4], "Global Radiation", base_plot_dir)
+    plot_error_vs_weather(err_Pmpp, weather_vals[:,0], "Ambient Temperature", base_plot_dir)
+    plot_error_vs_weather(err_Pmpp, weather_vals[:,1], "Humidity", base_plot_dir)
+    plot_error_vs_weather(err_Pmpp, weather_vals[:,2], "Cloud Cover", base_plot_dir)
+    plot_error_vs_weather(err_Pmpp, weather_vals[:,3], "Precipitation", base_plot_dir)
+
+    # Weather‑error correlations
+    weather_metrics = {
+        "corr_errPmpp_temp": np.corrcoef(err_Pmpp, weather_vals[:,0])[0,1],
+        "corr_errPmpp_humidity": np.corrcoef(err_Pmpp, weather_vals[:,1])[0,1],
+        "corr_errPmpp_cloud": np.corrcoef(err_Pmpp, weather_vals[:,2])[0,1],
+        "corr_errPmpp_precip": np.corrcoef(err_Pmpp, weather_vals[:,3])[0,1],
+        "corr_errPmpp_rad": np.corrcoef(err_Pmpp, weather_vals[:,4])[0,1],
+    }
+
+    pd.DataFrame([weather_metrics]).to_csv(
+        f"{base_metric_dir}/weather_error_correlations.csv",
+        index=False
+    )
+
+    print("Evaluation complete.")
+    return preds, trues

@@ -1,0 +1,90 @@
+# -----------------------------
+# PYTHON CACHE & BYTECODE
+# -----------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# -----------------------------
+# VIRTUAL ENVIRONMENTS
+# -----------------------------
+.venv/
+venv/
+env/
+
+# -----------------------------
+# EDITOR / IDE SETTINGS
+# -----------------------------
+.vscode/
+.idea/
+*.code-workspace
+
+# -----------------------------
+# BUILD / DISTRIBUTION ARTIFACTS
+# -----------------------------
+build/
+dist/
+*.egg-info/
+*.spec
+
+# -----------------------------
+# LOGS & RUN OUTPUTS
+# -----------------------------
+*.log
+logs/
+runs/
+
+# -----------------------------
+# MODEL WEIGHTS
+# -----------------------------
+models/*.pth
+models/*.pt
+
+# -----------------------------
+# DATA FILES (RAW / GENERATED)
+# -----------------------------
+*.npz
+*.npy
+*.csv
+*.xlsx
+*.json
+
+# Keep only specific data folders if needed:
+# !data/Si_raw/
+# !data/Psk_raw/
+
+# -----------------------------
+# WEATHER DATA
+# -----------------------------
+weather_*.csv
+
+# -----------------------------
+# SENSITIVE FILES
+# -----------------------------
+.env
+*.env
+.env.*
+
+# -----------------------------
+# OS JUNK FILES
+# -----------------------------
+.DS_Store
+Thumbs.db
+
+# -----------------------------
+# JUPYTER NOTEBOOK CHECKPOINTS
+# -----------------------------
+.ipynb_checkpoints/
+
+# -----------------------------
+# PYINSTALLER / PACKAGING
+# -----------------------------
+*.manifest
+
+# -----------------------------
+# TEMPORARY FILES
+# -----------------------------
+tmp/
+temp/
+*.tmp

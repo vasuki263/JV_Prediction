@@ -27,8 +27,7 @@ def reset_dir(path):
 # ---------------------------------------------------------
 # TRAIN FUNCTION
 # ---------------------------------------------------------
-def train(directory,
-          influx_csv,
+def train(directory, weather_csv,
           model_path="jv_model.pth",
           run_dir=None,
           epochs=40,
@@ -48,14 +47,16 @@ def train(directory,
     reset_dir(base_metric_dir)
 
     # -----------------------------------------------------
-    # Load dataset
+    # Load dataset (JV + WEATHER ONLY)
     # -----------------------------------------------------
-    train_loader, val_loader, _, scalers, _ = build_dataset(directory, influx_csv=influx_csv)
-
+    train_loader, val_loader, _, scalers, _ = build_dataset(
+        directory,
+        clean_weather_path=weather_csv
+    )
     # -----------------------------------------------------
-    # Model
+    # Model (input_size = 10 features)
     # -----------------------------------------------------
-    model = JV_LSTM(input_size=17)
+    model = JV_LSTM(input_size=10)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
@@ -71,7 +72,7 @@ def train(directory,
 
         for X, Y in train_loader:
             optimizer.zero_grad()
-            out = model(X)
+            out = model(X)          # X shape: (batch, seq_len, 10)
             loss = criterion(out, Y)
             loss.backward()
             optimizer.step()
@@ -85,9 +86,8 @@ def train(directory,
         val_batch_losses = []
         with torch.no_grad():
             for X, Y in val_loader:
-                out = model(X)
-                loss = criterion(out, Y)
-                val_batch_losses.append(loss.item())
+                pred = model(X)
+                val_batch_losses.append(criterion(pred, Y).item())
 
         val_loss = np.mean(val_batch_losses)
         val_losses.append(val_loss)
