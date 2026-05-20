@@ -1,4 +1,4 @@
-# build_dataset.py — FINAL VERSION (JV + WEATHER ONLY, AUTO TIMESTAMP MATCH)
+# build_dataset.py — FINAL VERSION (JV + WEATHER + Two‑diode params)
 
 import numpy as np
 import torch
@@ -6,8 +6,8 @@ from torch.utils.data import TensorDataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from extract_clean_jv import extract_all
+from two_diode_fit import fit_two_diode
 import pandas as pd
-import os
 
 
 # ---------------------------------------------------------
@@ -46,8 +46,6 @@ def build_dataset(directory,
     # ---------------------------------------------------------
     weather = pd.read_csv(clean_weather_path, parse_dates=["timestamp"])
     weather = weather.set_index("timestamp").sort_index()
-
-    # NaN‑safe
     weather = weather.ffill().bfill().fillna(0)
 
     # ---------------------------------------------------------
@@ -92,24 +90,34 @@ def build_dataset(directory,
     scalers["targets"].fit(targets)
 
     # ---------------------------------------------------------
-    # 4. Build dataset (JV + WEATHER ONLY)
+    # 4. Build dataset (JV + WEATHER + two‑diode params in raw_test)
     # ---------------------------------------------------------
     final_X = []
     final_Y = []
     raw_curves = []
 
     for s in samples:
+        v_raw = s["voltage"]
+        i_raw = s["current"]
+
+        # Two‑diode fit
+        params = fit_two_diode(v_raw, i_raw)
 
         raw_curves.append({
             "file": s["file"],
             "timestamp": s["timestamp"],
-            "voltage_raw": s["voltage"],
-            "current_raw": s["current"],
+            "voltage_raw": v_raw,
+            "current_raw": i_raw,
+            "Rs": params["Rs"],
+            "Rsh": params["Rsh"],
+            "n1": params["n1"],
+            "n2": params["n2"],
+            "J01": params["J01"],
+            "J02": params["J02"],
+            "Jph": params["Jph"]
         })
 
         # Downsample JV curve
-        v_raw = s["voltage"]
-        i_raw = s["current"]
         v, i = downsample(v_raw, i_raw)
 
         v = scalers["voltage"].transform(v.reshape(-1, 1))
@@ -135,9 +143,7 @@ def build_dataset(directory,
             scalers["glob"].transform([[w["global_radiation"]]])[0][0]
         ])
 
-        # ---------------------------------------------------------
         # Final feature block (10 features)
-        # ---------------------------------------------------------
         sample_block = np.zeros((len(v), 10))
         sample_block[:, 0] = v.flatten()
         sample_block[:, 1] = i.flatten()

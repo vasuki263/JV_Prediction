@@ -49,6 +49,8 @@ models/*.pt
 *.csv
 *.xlsx
 *.json
+training_curve.png
+jv_validity_histogram.png
 
 # Keep only specific data folders if needed:
 # !data/Si_raw/

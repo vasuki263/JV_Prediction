@@ -1,4 +1,4 @@
-# evaluate_lstm.py — FINAL VERSION (WEATHER‑AWARE, FULL JV PLOTTING)
+# evaluate_lstm.py — FINAL VERSION (WEATHER‑AWARE, JV + Rs/Rsh + Two‑diode)
 
 import torch
 import numpy as np
@@ -123,6 +123,19 @@ def plot_error_vs_weather(errors, weather_values, name, base_plot_dir):
     plt.close()
 
 
+def plot_dependency(x, y, xlabel, ylabel, base_plot_dir, subdir="rs_rsh_effects"):
+    ensure_dir(f"{base_plot_dir}/{subdir}")
+    plt.figure(figsize=(6,5))
+    plt.scatter(x, y, alpha=0.6, edgecolor='k')
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(f"{ylabel} vs {xlabel}")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f"{base_plot_dir}/{subdir}/{ylabel}_vs_{xlabel}.png", dpi=150)
+    plt.close()
+
+
 # ---------------------------------------------------------
 # MAIN EVALUATION FUNCTION
 # ---------------------------------------------------------
@@ -183,9 +196,7 @@ def evaluate(directory,
     })
     df.to_csv(f"{base_metric_dir}/predictions_vs_true.csv", index=False)
 
-    # ---------------------------------------------------------
     # TRUE VS PREDICTED PLOTS
-    # ---------------------------------------------------------
     plot_true_vs_pred(trues[:, 0], preds[:, 0], "Voc", base_plot_dir)
     plot_true_vs_pred(trues[:, 1], preds[:, 1], "Jsc", base_plot_dir)
     plot_true_vs_pred(trues[:, 2], preds[:, 2], "Pmpp", base_plot_dir)
@@ -194,9 +205,7 @@ def evaluate(directory,
     FF_pred = preds[:, 2] / (preds[:, 0] * preds[:, 1] + 1e-9)
     plot_true_vs_pred(FF_true, FF_pred, "FF", base_plot_dir)
 
-    # ---------------------------------------------------------
     # JV CURVE PLOTS
-    # ---------------------------------------------------------
     raw_V = [entry["voltage_raw"] for entry in raw_test]
     raw_I = [entry["current_raw"] for entry in raw_test]
 
@@ -206,6 +215,75 @@ def evaluate(directory,
 
         plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx, base_plot_dir)
         plot_raw_vs_pred(raw_V[idx], raw_I[idx], V_pred, J_pred, idx, base_plot_dir)
+
+    # ---------------------------------------------------------
+    # RS / RSH EFFECTS (from two‑diode fit)
+    # ---------------------------------------------------------
+    Rs_vals  = np.array([entry["Rs"]  for entry in raw_test])
+    Rsh_vals = np.array([entry["Rsh"] for entry in raw_test])
+
+    Voc_true = trues[:,0]
+    Jsc_true = trues[:,1]
+    Pmpp_true = trues[:,2]
+    FF_true = Pmpp_true / (Voc_true * Jsc_true + 1e-9)
+
+    # Rs effects
+    plot_dependency(Rs_vals, Voc_true, "Rs", "Voc", base_plot_dir, subdir="rs_rsh_effects")
+    plot_dependency(Rs_vals, Jsc_true, "Rs", "Jsc", base_plot_dir, subdir="rs_rsh_effects")
+    plot_dependency(Rs_vals, FF_true, "Rs", "FF", base_plot_dir, subdir="rs_rsh_effects")
+    plot_dependency(Rs_vals, Pmpp_true, "Rs", "Pmpp", base_plot_dir, subdir="rs_rsh_effects")
+
+    # Rsh effects
+    plot_dependency(Rsh_vals, Voc_true, "Rsh", "Voc", base_plot_dir, subdir="rs_rsh_effects")
+    plot_dependency(Rsh_vals, Jsc_true, "Rsh", "Jsc", base_plot_dir, subdir="rs_rsh_effects")
+    plot_dependency(Rsh_vals, FF_true, "Rsh", "FF", base_plot_dir, subdir="rs_rsh_effects")
+    plot_dependency(Rsh_vals, Pmpp_true, "Rsh", "Pmpp", base_plot_dir, subdir="rs_rsh_effects")
+
+    rs_rsh_metrics = {
+        "corr_Rs_Voc": np.corrcoef(Rs_vals, Voc_true)[0,1],
+        "corr_Rs_Jsc": np.corrcoef(Rs_vals, Jsc_true)[0,1],
+        "corr_Rs_FF": np.corrcoef(Rs_vals, FF_true)[0,1],
+        "corr_Rs_Pmpp": np.corrcoef(Rs_vals, Pmpp_true)[0,1],
+
+        "corr_Rsh_Voc": np.corrcoef(Rsh_vals, Voc_true)[0,1],
+        "corr_Rsh_Jsc": np.corrcoef(Rsh_vals, Jsc_true)[0,1],
+        "corr_Rsh_FF": np.corrcoef(Rsh_vals, FF_true)[0,1],
+        "corr_Rsh_Pmpp": np.corrcoef(Rsh_vals, Pmpp_true)[0,1],
+    }
+
+    pd.DataFrame([rs_rsh_metrics]).to_csv(
+        f"{base_metric_dir}/rs_rsh_correlations.csv",
+        index=False
+    )
+
+    # ---------------------------------------------------------
+    # TWO‑DIODE PARAM EFFECTS
+    # ---------------------------------------------------------
+    n1_vals  = np.array([entry["n1"]  for entry in raw_test])
+    n2_vals  = np.array([entry["n2"]  for entry in raw_test])
+    J01_vals = np.array([entry["J01"] for entry in raw_test])
+    J02_vals = np.array([entry["J02"] for entry in raw_test])
+    Jph_vals = np.array([entry["Jph"] for entry in raw_test])
+
+    # Plots
+    plot_dependency(n1_vals, Voc_true, "n1", "Voc", base_plot_dir, subdir="two_diode")
+    plot_dependency(n2_vals, Voc_true, "n2", "Voc", base_plot_dir, subdir="two_diode")
+    plot_dependency(J02_vals, FF_true, "J02", "FF", base_plot_dir, subdir="two_diode")
+    plot_dependency(J01_vals, Voc_true, "J01", "Voc", base_plot_dir, subdir="two_diode")
+    plot_dependency(Jph_vals, Jsc_true, "Jph", "Jsc", base_plot_dir, subdir="two_diode")
+
+    two_diode_metrics = {
+        "corr_n1_Voc": np.corrcoef(n1_vals, Voc_true)[0,1],
+        "corr_n2_Voc": np.corrcoef(n2_vals, Voc_true)[0,1],
+        "corr_J01_Voc": np.corrcoef(J01_vals, Voc_true)[0,1],
+        "corr_J02_FF": np.corrcoef(J02_vals, FF_true)[0,1],
+        "corr_Jph_Jsc": np.corrcoef(Jph_vals, Jsc_true)[0,1],
+    }
+
+    pd.DataFrame([two_diode_metrics]).to_csv(
+        f"{base_metric_dir}/two_diode_correlations.csv",
+        index=False
+    )
 
     # ---------------------------------------------------------
     # WEATHER ANALYSIS
