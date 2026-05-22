@@ -1,10 +1,17 @@
-# extract_clean_jv.py
+# extract_clean_jv_s3.py — JV extractor using InfluxDB + S3 (parallel + caching)
 
 import numpy as np
-from pathlib import Path
+import pandas as pd
+import boto3
+import io
 import re
-import matplotlib.pyplot as plt
 from datetime import datetime
+from influxdb_client import InfluxDBClient
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+from dotenv import load_dotenv
+load_dotenv()
 
 MAX_IRRADIANCE_VARIATION = 45
 MAX_IRRADIANCE_DIFFERENCE_FWD_BWD = 30
@@ -21,69 +28,73 @@ LOG = {
     "backward_invalid": 0
 }
 
+# ---------------------------------------------------------
+# Globals: S3 client, Influx client, cache dir
+# ---------------------------------------------------------
+S3_CLIENT = boto3.client("s3")
+
+INFLUX_CLIENT = InfluxDBClient(
+    url=os.getenv("INFLUX_URL"),
+    token=os.getenv("INFLUX_TOKEN"),
+    org=os.getenv("INFLUX_ORG")
+)
+
+CACHE_DIR = "cache_jv"
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+# ---------------------------------------------------------
+# 1. Parse timestamp from filename
+# ---------------------------------------------------------
 def parse_timestamp_from_filename(name):
     m = re.search(r'(\d{8})_(\d{6})', name)
     if m:
         return datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S")
     return None
 
-def extract_temperature(filepath):
-    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-        first = f.readline()
-        m = re.search(r'([\d.]+)\s*°?C', first)
-        return float(m.group(1)) if m else None
-
-def load_raw(filepath):
-    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-        f.readline()
-        try:
-            data = np.genfromtxt(
-                f, delimiter=';', usecols=(2, 3, 4), invalid_raise=False
-            )
-        except Exception:
-            return None, None, None
-
-    if data is None or data.ndim != 2 or data.shape[1] < 3:
-        return None, None, None
-
-    return data[:, 0], data[:, 1], data[:, 2]
-
+# ---------------------------------------------------------
+# 2. Compute JV parameters
+# ---------------------------------------------------------
 def compute_params(voltage, current):
     idx = np.argmin(np.abs(current))
     Voc = float(voltage[idx])
+
     idx2 = np.argmin(np.abs(voltage))
     Isc = float(current[idx2])
+
     power = voltage * current
     i = np.argmax(power)
     Vmpp = float(voltage[i])
     Impp = float(current[i])
     Pmpp = float(power[i])
+
     FF = Pmpp / (Voc * Isc) if Voc * Isc != 0 else 0
     return Voc, Isc, Vmpp, Impp, Pmpp, FF
 
-def extract_clean_jv(filepath):
+# ---------------------------------------------------------
+# 3. Parse a single JV file from bytes
+# ---------------------------------------------------------
+def extract_clean_jv_from_bytes(data, key):
     LOG["files_scanned"] += 1
 
-    temp = extract_temperature(filepath)
-    if temp is None:
-        return []
+    df = pd.read_csv(io.BytesIO(data))
 
-    voltage, current, irr = load_raw(filepath)
-    if voltage is None:
-        return []
+    voltage = df["voltage"].astype(float).values
+    current = df["current"].astype(float).values
+    irr = df["irradiance"].astype(float).values
+    temp = float(df["temperature"].iloc[0])
 
-    timestamp = parse_timestamp_from_filename(filepath.name)
+    timestamp = parse_timestamp_from_filename(key)
     if timestamp is None:
         return []
 
-    sep = min(899, len(voltage)//2)
+    sep = min(899, len(voltage) // 2)
     irr_fwd, irr_bwd = irr[:sep], irr[sep:]
 
-    if np.max(irr_fwd)-np.min(irr_fwd) > MAX_IRRADIANCE_VARIATION:
+    if np.max(irr_fwd) - np.min(irr_fwd) > MAX_IRRADIANCE_VARIATION:
         return []
-    if np.max(irr_bwd)-np.min(irr_bwd) > MAX_IRRADIANCE_VARIATION:
+    if np.max(irr_bwd) - np.min(irr_bwd) > MAX_IRRADIANCE_VARIATION:
         return []
-    if abs(np.mean(irr_fwd)-np.mean(irr_bwd)) > MAX_IRRADIANCE_DIFFERENCE_FWD_BWD:
+    if abs(np.mean(irr_fwd) - np.mean(irr_bwd)) > MAX_IRRADIANCE_DIFFERENCE_FWD_BWD:
         return []
 
     v_fwd = voltage[:sep][TRIM_START:-TRIM_END]
@@ -96,16 +107,16 @@ def extract_clean_jv(filepath):
 
     irr_avg = float(np.mean(irr))
 
-    def valid_sample(Voc, Isc, Pmpp):
+    def valid(Voc, Isc, Pmpp):
         return Voc > 0 and Isc > 0 and Pmpp > 0
 
     samples = []
 
     LOG["forward_total"] += 1
-    if valid_sample(Voc_f, Isc_f, Pmpp_f):
+    if valid(Voc_f, Isc_f, Pmpp_f):
         LOG["forward_valid"] += 1
         samples.append({
-            "file": filepath.name,
+            "file": key,
             "sweep": "forward",
             "temperature": temp,
             "irradiance": irr_avg,
@@ -121,10 +132,10 @@ def extract_clean_jv(filepath):
         LOG["forward_invalid"] += 1
 
     LOG["backward_total"] += 1
-    if valid_sample(Voc_b, Isc_b, Pmpp_b):
+    if valid(Voc_b, Isc_b, Pmpp_b):
         LOG["backward_valid"] += 1
         samples.append({
-            "file": filepath.name,
+            "file": key,
             "sweep": "backward",
             "temperature": temp,
             "irradiance": irr_avg,
@@ -141,30 +152,88 @@ def extract_clean_jv(filepath):
 
     return samples
 
-def extract_all(directory):
-    directory = Path(directory)
-    files = [f for f in directory.rglob("*.txt") if "SEPIV" in f.name.upper()]
+# ---------------------------------------------------------
+# 4. Query InfluxDB to get S3 keys (bucket + key)
+# ---------------------------------------------------------
+def get_s3_keys_from_influx(tech):
+    query = f'''
+    from(bucket: "test_jv_upload")
+      |> range(start: -365d)
+      |> filter(fn: (r) => r["_measurement"] == "jv_measurements")
+      |> filter(fn: (r) => r["panel_name"] == "{tech}")
+      |> filter(fn: (r) => r["_field"] == "s3_bucket" or r["_field"] == "s3_object_key")
+    '''
+
+    tables = INFLUX_CLIENT.query_api().query(query)
+    pairs = {}
+
+    for table in tables:
+        for row in table.records:
+            t = row["_time"]
+
+            if t not in pairs:
+                pairs[t] = {"bucket": None, "key": None}
+
+            if row["_field"] == "s3_bucket":
+                pairs[t]["bucket"] = row["_value"]
+            elif row["_field"] == "s3_object_key":
+                pairs[t]["key"] = row["_value"]
+
+    keys = []
+    for t, d in pairs.items():
+        if d["bucket"] is not None and d["key"] is not None:
+            keys.append((d["bucket"], d["key"]))
+
+    print("DEBUG: extracted key-count:", len(keys))
+    return keys
+
+# ---------------------------------------------------------
+# 5. Parallel + cached S3 download
+# ---------------------------------------------------------
+def download_one(bucket, key):
+    local_path = os.path.join(CACHE_DIR, key.replace("/", "_"))
+
+    if os.path.exists(local_path):
+        with open(local_path, "rb") as f:
+            data = f.read()
+        return key, data
+
+    obj = S3_CLIENT.get_object(Bucket=bucket, Key=key)
+    data = obj["Body"].read()
+
+    with open(local_path, "wb") as f:
+        f.write(data)
+
+    return key, data
+
+# ---------------------------------------------------------
+# 6. Extract all JV data using InfluxDB keys (parallel)
+# ---------------------------------------------------------
+def extract_all_from_influx(tech):
+    keys = get_s3_keys_from_influx(tech)
+
+    if not keys:
+        print("No S3 keys found for tech:", tech)
+        return []
+
+    print(f"Starting parallel download of {len(keys)} JV files...")
+
     samples = []
+    futures = []
 
-    for f in files:
-        samples.extend(extract_clean_jv(f))
+    with ThreadPoolExecutor(max_workers=20) as ex:
+        for bucket, key in keys:
+            futures.append(ex.submit(download_one, bucket, key))
 
-    print("\n================ JV EXTRACTION SUMMARY ================")
-    for k, v in LOG.items():
-        print(f"{k}: {v}")
-    print("========================================================")
+        for f in tqdm(as_completed(futures), total=len(futures), desc=f"Downloading JV files ({tech})"):
+            try:
+                key, data = f.result()
+                s = extract_clean_jv_from_bytes(data, key)
+                if s:
+                    samples.extend(s)
+            except Exception as e:
+                print(f"[WARN] Failed to process {key}: {e}")
 
-    valid = LOG["forward_valid"] + LOG["backward_valid"]
-    invalid = LOG["forward_invalid"] + LOG["backward_invalid"]
-
-    plt.figure(figsize=(6,5))
-    plt.bar(["Valid", "Invalid"], [valid, invalid], color=["green","red"])
-    plt.title("JV Sweep Validity After QC + Filtering")
-    plt.ylabel("Number of Sweeps")
-    plt.grid(axis="y", alpha=0.3)
-    plt.savefig("jv_validity_histogram.png", dpi=150)
-    plt.close()
-
-    print("\n📊 Histogram saved as: jv_validity_histogram.png\n")
-
+    print("Total JV samples extracted:", len(samples))
+    print("LOG:", LOG)
     return samples

@@ -1,4 +1,4 @@
-# train_lstm.py
+# train_lstm.py — UPDATED FOR INFLUXDB-BASED JV EXTRACTION
 
 import torch
 import torch.nn as nn
@@ -25,9 +25,10 @@ def reset_dir(path):
 
 
 # ---------------------------------------------------------
-# TRAIN FUNCTION
+# TRAIN FUNCTION (UPDATED)
 # ---------------------------------------------------------
-def train(directory, weather_csv,
+def train(dataset,
+          tech,
           model_path="jv_model.pth",
           run_dir=None,
           epochs=40,
@@ -47,14 +48,12 @@ def train(directory, weather_csv,
     reset_dir(base_metric_dir)
 
     # -----------------------------------------------------
-    # Load dataset (JV + WEATHER ONLY)
+    # Dataset is already built in pipeline.py
     # -----------------------------------------------------
-    train_loader, val_loader, _, scalers, _ = build_dataset(
-        directory,
-        clean_weather_path=weather_csv
-    )
+    train_loader, val_loader, test_loader, scalers, raw_test = dataset
+
     # -----------------------------------------------------
-    # Model (input_size = 10 features)
+    # Model
     # -----------------------------------------------------
     model = JV_LSTM(input_size=10)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -72,7 +71,7 @@ def train(directory, weather_csv,
 
         for X, Y in train_loader:
             optimizer.zero_grad()
-            out = model(X)          # X shape: (batch, seq_len, 10)
+            out = model(X)
             loss = criterion(out, Y)
             loss.backward()
             optimizer.step()
@@ -98,8 +97,8 @@ def train(directory, weather_csv,
     # Save model
     # -----------------------------------------------------
     ensure_dir(os.path.dirname(model_path))
-    torch.save({"model": model.state_dict()}, model_path)
-    print(f"Model saved to {model_path}")
+    torch.save({"model": model.state_dict(), "scalers": scalers}, model_path)
+    print(f"[INFO] Model saved to {model_path}")
 
     # -----------------------------------------------------
     # Save loss curves
@@ -109,7 +108,7 @@ def train(directory, weather_csv,
     plt.plot(val_losses, label="Validation Loss", linewidth=2)
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.title("Training & Validation Loss")
+    plt.title(f"Training & Validation Loss ({tech})")
     plt.grid(alpha=0.3)
     plt.legend()
     plt.tight_layout()
@@ -124,5 +123,5 @@ def train(directory, weather_csv,
     })
     df.to_csv(f"{base_metric_dir}/training_losses.csv", index=False)
 
-    print("Training complete.")
+    print("[INFO] Training complete.")
     return model

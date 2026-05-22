@@ -1,26 +1,28 @@
-# build_dataset.py — FINAL VERSION (JV + WEATHER + Two‑diode params)
+# build_dataset.py — UPDATED FOR INFLUXDB-BASED JV EXTRACTION
 
 import numpy as np
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
-from extract_clean_jv import extract_all
-from two_diode_fit import fit_two_diode
 import pandas as pd
 
+from extract_clean_jv import extract_all_from_influx   # NEW
+from two_diode_fit import fit_two_diode
+from dotenv import load_dotenv
+load_dotenv()
+
 
 # ---------------------------------------------------------
-# FAST NEAREST TIMESTAMP MATCH
+# Nearest timestamp helper
 # ---------------------------------------------------------
 def nearest_timestamp(df, ts):
-    """Return the row in df whose index is closest to ts."""
     idx = df.index.get_indexer([ts], method="nearest")[0]
     return df.iloc[idx]
 
 
 # ---------------------------------------------------------
-# DOWNSAMPLE JV CURVE
+# Downsample JV curve to fixed length
 # ---------------------------------------------------------
 def downsample(v, i, n=100):
     n0 = min(len(v), len(i))
@@ -29,44 +31,43 @@ def downsample(v, i, n=100):
 
 
 # ---------------------------------------------------------
-# MAIN DATASET BUILDER
+# MAIN DATASET BUILDER (UPDATED)
 # ---------------------------------------------------------
-def build_dataset(directory,
-                  clean_weather_path,
-                  batch=32):
+def build_dataset(tech, clean_weather_path, batch=32):
 
-    # ---------------------------------------------------------
-    # 1. Load JV samples
-    # ---------------------------------------------------------
-    samples = extract_all(directory)
+    # -----------------------------------------------------
+    # 1. Extract JV samples using InfluxDB → S3 GetObject
+    # -----------------------------------------------------
+    samples = extract_all_from_influx(tech)
     print("DEBUG: number of samples:", len(samples))
 
-    # ---------------------------------------------------------
-    # 2. Load cleaned weather data
-    # ---------------------------------------------------------
+    if len(samples) == 0:
+        raise RuntimeError(f"No JV samples found for tech={tech}")
+
+    # -----------------------------------------------------
+    # 2. Load weather data
+    # -----------------------------------------------------
     weather = pd.read_csv(clean_weather_path, parse_dates=["timestamp"])
     weather = weather.set_index("timestamp").sort_index()
     weather = weather.ffill().bfill().fillna(0)
 
-    # ---------------------------------------------------------
-    # 3. Fit scalers (JV + weather ONLY)
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
+    # 3. Prepare scalers
+    # -----------------------------------------------------
     scalers = {
         "voltage": MinMaxScaler(),
         "current": MinMaxScaler(),
         "temperature": MinMaxScaler(),
         "irradiance": MinMaxScaler(),
-
         "temp_amb": MinMaxScaler(),
         "humidity": MinMaxScaler(),
         "cloud": MinMaxScaler(),
         "precip": MinMaxScaler(),
         "glob": MinMaxScaler(),
-
-        "targets": MinMaxScaler()
+        "y": MinMaxScaler()   # NEW: replaces "targets"
     }
 
-    # JV scalers
+    # Fit JV scalers
     all_v = np.concatenate([s["voltage"] for s in samples])
     all_i = np.concatenate([s["current"] for s in samples])
     all_t = np.array([s["temperature"] for s in samples]).reshape(-1, 1)
@@ -77,21 +78,21 @@ def build_dataset(directory,
     scalers["temperature"].fit(all_t)
     scalers["irradiance"].fit(all_g)
 
-    # Weather scalers
+    # Fit weather scalers
     scalers["temp_amb"].fit(weather["temp_C"].values.reshape(-1, 1))
     scalers["humidity"].fit(weather["humidity"].values.reshape(-1, 1))
     scalers["cloud"].fit(weather["cloud_cover"].values.reshape(-1, 1))
     scalers["precip"].fit(weather["precip_mm"].values.reshape(-1, 1))
     scalers["glob"].fit(weather["global_radiation"].values.reshape(-1, 1))
 
-    # Target scalers
+    # Fit target scaler
     targets = np.array([[s["Voc"], s["Jsc"], s["Pmpp"]] for s in samples])
     targets = np.nan_to_num(targets, nan=0.0)
-    scalers["targets"].fit(targets)
+    scalers["y"].fit(targets)
 
-    # ---------------------------------------------------------
-    # 4. Build dataset (JV + WEATHER + two‑diode params in raw_test)
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
+    # 4. Build feature blocks
+    # -----------------------------------------------------
     final_X = []
     final_Y = []
     raw_curves = []
@@ -100,7 +101,7 @@ def build_dataset(directory,
         v_raw = s["voltage"]
         i_raw = s["current"]
 
-        # Two‑diode fit
+        # Two-diode fitting
         params = fit_two_diode(v_raw, i_raw)
 
         raw_curves.append({
@@ -117,18 +118,19 @@ def build_dataset(directory,
             "Jph": params["Jph"]
         })
 
-        # Downsample JV curve
+        # Downsample JV
         v, i = downsample(v_raw, i_raw)
 
+        # Scale JV
         v = scalers["voltage"].transform(v.reshape(-1, 1))
         i = scalers["current"].transform(i.reshape(-1, 1))
         sweep = np.linspace(0, 1, len(v)).reshape(-1, 1)
 
-        # JV metadata
+        # Module temperature + irradiance
         temp_mod = scalers["temperature"].transform([[s["temperature"]]])[0][0]
         irr_mod = scalers["irradiance"].transform([[s["irradiance"]]])[0][0]
 
-        # Timestamp alignment
+        # Weather alignment
         ts = pd.Timestamp(s["timestamp"])
         if ts.tz is None:
             ts = ts.tz_localize("UTC")
@@ -143,7 +145,7 @@ def build_dataset(directory,
             scalers["glob"].transform([[w["global_radiation"]]])[0][0]
         ])
 
-        # Final feature block (10 features)
+        # Build 10-feature block
         sample_block = np.zeros((len(v), 10))
         sample_block[:, 0] = v.flatten()
         sample_block[:, 1] = i.flatten()
@@ -153,22 +155,22 @@ def build_dataset(directory,
         sample_block[:, 5:10] = w_scaled
 
         sample_block = np.nan_to_num(sample_block, nan=0.0)
-
         final_X.append(sample_block)
 
-        y = scalers["targets"].transform([[s["Voc"], s["Jsc"], s["Pmpp"]]])[0]
+        # Targets: Voc, Jsc, Pmpp
+        y = scalers["y"].transform([[s["Voc"], s["Jsc"], s["Pmpp"]]])[0]
         y = np.nan_to_num(y, nan=0.0)
         final_Y.append(y)
 
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
     # 5. Convert to tensors
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
     X = torch.from_numpy(np.stack(final_X)).float()
     Y = torch.from_numpy(np.stack(final_Y)).float()
 
-    # ---------------------------------------------------------
-    # 6. Train/val/test split
-    # ---------------------------------------------------------
+    # -----------------------------------------------------
+    # 6. Train/Val/Test split
+    # -----------------------------------------------------
     X_train, X_temp, Y_train, Y_temp, raw_train, raw_temp = train_test_split(
         X, Y, raw_curves, test_size=0.30, random_state=42
     )
@@ -177,6 +179,9 @@ def build_dataset(directory,
         X_temp, Y_temp, raw_temp, test_size=0.50, random_state=42
     )
 
+    # -----------------------------------------------------
+    # 7. DataLoaders
+    # -----------------------------------------------------
     train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=batch, shuffle=True)
     val_loader   = DataLoader(TensorDataset(X_val, Y_val), batch_size=batch, shuffle=False)
     test_loader  = DataLoader(TensorDataset(X_test, Y_test), batch_size=batch, shuffle=False)

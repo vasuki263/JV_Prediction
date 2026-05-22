@@ -1,13 +1,14 @@
-# evaluate_lstm.py — FINAL VERSION (WEATHER‑AWARE, JV + Rs/Rsh + Two‑diode)
+# evaluate_lstm.py — UPDATED FOR INFLUXDB-BASED JV EXTRACTION
 
 import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from model_lstm import JV_LSTM
-from build_dataset import build_dataset, nearest_timestamp
 import os
 import shutil
+
+from model_lstm import JV_LSTM
+from build_dataset import build_dataset, nearest_timestamp
 
 
 # ---------------------------------------------------------
@@ -20,18 +21,6 @@ def reset_dir(path):
     if os.path.exists(path):
         shutil.rmtree(path)
     os.makedirs(path, exist_ok=True)
-
-
-# ---------------------------------------------------------
-# DEVICE TYPE DETECTION
-# ---------------------------------------------------------
-def get_device_type(directory):
-    name = directory.lower()
-    if "psk" in name or "perov" in name:
-        return "Perovskite"
-    if "si" in name or "silicon" in name:
-        return "Silicon"
-    return "Unknown"
 
 
 # ---------------------------------------------------------
@@ -137,13 +126,14 @@ def plot_dependency(x, y, xlabel, ylabel, base_plot_dir, subdir="rs_rsh_effects"
 
 
 # ---------------------------------------------------------
-# MAIN EVALUATION FUNCTION
+# MAIN EVALUATION FUNCTION (UPDATED)
 # ---------------------------------------------------------
-def evaluate(directory,
+def evaluate(tech,
              weather_csv,
              model_path="jv_model.pth"):
 
-    device = get_device_type(directory)
+    # Device type = tech name
+    device = tech
 
     base_plot_dir = f"outputs/{device}/plots"
     base_metric_dir = f"outputs/{device}/metrics"
@@ -151,9 +141,9 @@ def evaluate(directory,
     reset_dir(base_plot_dir)
     reset_dir(base_metric_dir)
 
-    # Load dataset
+    # Load dataset (InfluxDB → S3 GetObject)
     _, _, test_loader, scalers, raw_test = build_dataset(
-        directory,
+        tech,
         clean_weather_path=weather_csv
     )
 
@@ -174,8 +164,9 @@ def evaluate(directory,
     preds = np.vstack(preds)
     trues = np.vstack(trues)
 
-    preds = scalers["targets"].inverse_transform(preds)
-    trues = scalers["targets"].inverse_transform(trues)
+    # Inverse scale
+    preds = scalers["y"].inverse_transform(preds)
+    trues = scalers["y"].inverse_transform(trues)
 
     # Compute errors
     err_Voc = np.abs(trues[:,0] - preds[:,0])
@@ -217,7 +208,7 @@ def evaluate(directory,
         plot_raw_vs_pred(raw_V[idx], raw_I[idx], V_pred, J_pred, idx, base_plot_dir)
 
     # ---------------------------------------------------------
-    # RS / RSH EFFECTS (from two‑diode fit)
+    # RS / RSH EFFECTS
     # ---------------------------------------------------------
     Rs_vals  = np.array([entry["Rs"]  for entry in raw_test])
     Rsh_vals = np.array([entry["Rsh"] for entry in raw_test])
@@ -228,33 +219,16 @@ def evaluate(directory,
     FF_true = Pmpp_true / (Voc_true * Jsc_true + 1e-9)
 
     # Rs effects
-    plot_dependency(Rs_vals, Voc_true, "Rs", "Voc", base_plot_dir, subdir="rs_rsh_effects")
-    plot_dependency(Rs_vals, Jsc_true, "Rs", "Jsc", base_plot_dir, subdir="rs_rsh_effects")
-    plot_dependency(Rs_vals, FF_true, "Rs", "FF", base_plot_dir, subdir="rs_rsh_effects")
-    plot_dependency(Rs_vals, Pmpp_true, "Rs", "Pmpp", base_plot_dir, subdir="rs_rsh_effects")
+    plot_dependency(Rs_vals, Voc_true, "Rs", "Voc", base_plot_dir)
+    plot_dependency(Rs_vals, Jsc_true, "Rs", "Jsc", base_plot_dir)
+    plot_dependency(Rs_vals, FF_true, "Rs", "FF", base_plot_dir)
+    plot_dependency(Rs_vals, Pmpp_true, "Rs", "Pmpp", base_plot_dir)
 
     # Rsh effects
-    plot_dependency(Rsh_vals, Voc_true, "Rsh", "Voc", base_plot_dir, subdir="rs_rsh_effects")
-    plot_dependency(Rsh_vals, Jsc_true, "Rsh", "Jsc", base_plot_dir, subdir="rs_rsh_effects")
-    plot_dependency(Rsh_vals, FF_true, "Rsh", "FF", base_plot_dir, subdir="rs_rsh_effects")
-    plot_dependency(Rsh_vals, Pmpp_true, "Rsh", "Pmpp", base_plot_dir, subdir="rs_rsh_effects")
-
-    rs_rsh_metrics = {
-        "corr_Rs_Voc": np.corrcoef(Rs_vals, Voc_true)[0,1],
-        "corr_Rs_Jsc": np.corrcoef(Rs_vals, Jsc_true)[0,1],
-        "corr_Rs_FF": np.corrcoef(Rs_vals, FF_true)[0,1],
-        "corr_Rs_Pmpp": np.corrcoef(Rs_vals, Pmpp_true)[0,1],
-
-        "corr_Rsh_Voc": np.corrcoef(Rsh_vals, Voc_true)[0,1],
-        "corr_Rsh_Jsc": np.corrcoef(Rsh_vals, Jsc_true)[0,1],
-        "corr_Rsh_FF": np.corrcoef(Rsh_vals, FF_true)[0,1],
-        "corr_Rsh_Pmpp": np.corrcoef(Rsh_vals, Pmpp_true)[0,1],
-    }
-
-    pd.DataFrame([rs_rsh_metrics]).to_csv(
-        f"{base_metric_dir}/rs_rsh_correlations.csv",
-        index=False
-    )
+    plot_dependency(Rsh_vals, Voc_true, "Rsh", "Voc", base_plot_dir)
+    plot_dependency(Rsh_vals, Jsc_true, "Rsh", "Jsc", base_plot_dir)
+    plot_dependency(Rsh_vals, FF_true, "Rsh", "FF", base_plot_dir)
+    plot_dependency(Rsh_vals, Pmpp_true, "Rsh", "Pmpp", base_plot_dir)
 
     # ---------------------------------------------------------
     # TWO‑DIODE PARAM EFFECTS
@@ -265,25 +239,11 @@ def evaluate(directory,
     J02_vals = np.array([entry["J02"] for entry in raw_test])
     Jph_vals = np.array([entry["Jph"] for entry in raw_test])
 
-    # Plots
     plot_dependency(n1_vals, Voc_true, "n1", "Voc", base_plot_dir, subdir="two_diode")
     plot_dependency(n2_vals, Voc_true, "n2", "Voc", base_plot_dir, subdir="two_diode")
     plot_dependency(J02_vals, FF_true, "J02", "FF", base_plot_dir, subdir="two_diode")
     plot_dependency(J01_vals, Voc_true, "J01", "Voc", base_plot_dir, subdir="two_diode")
     plot_dependency(Jph_vals, Jsc_true, "Jph", "Jsc", base_plot_dir, subdir="two_diode")
-
-    two_diode_metrics = {
-        "corr_n1_Voc": np.corrcoef(n1_vals, Voc_true)[0,1],
-        "corr_n2_Voc": np.corrcoef(n2_vals, Voc_true)[0,1],
-        "corr_J01_Voc": np.corrcoef(J01_vals, Voc_true)[0,1],
-        "corr_J02_FF": np.corrcoef(J02_vals, FF_true)[0,1],
-        "corr_Jph_Jsc": np.corrcoef(Jph_vals, Jsc_true)[0,1],
-    }
-
-    pd.DataFrame([two_diode_metrics]).to_csv(
-        f"{base_metric_dir}/two_diode_correlations.csv",
-        index=False
-    )
 
     # ---------------------------------------------------------
     # WEATHER ANALYSIS
@@ -310,20 +270,6 @@ def evaluate(directory,
     plot_error_vs_weather(err_Pmpp, weather_vals[:,1], "Humidity", base_plot_dir)
     plot_error_vs_weather(err_Pmpp, weather_vals[:,2], "Cloud Cover", base_plot_dir)
     plot_error_vs_weather(err_Pmpp, weather_vals[:,3], "Precipitation", base_plot_dir)
-
-    # Weather‑error correlations
-    weather_metrics = {
-        "corr_errPmpp_temp": np.corrcoef(err_Pmpp, weather_vals[:,0])[0,1],
-        "corr_errPmpp_humidity": np.corrcoef(err_Pmpp, weather_vals[:,1])[0,1],
-        "corr_errPmpp_cloud": np.corrcoef(err_Pmpp, weather_vals[:,2])[0,1],
-        "corr_errPmpp_precip": np.corrcoef(err_Pmpp, weather_vals[:,3])[0,1],
-        "corr_errPmpp_rad": np.corrcoef(err_Pmpp, weather_vals[:,4])[0,1],
-    }
-
-    pd.DataFrame([weather_metrics]).to_csv(
-        f"{base_metric_dir}/weather_error_correlations.csv",
-        index=False
-    )
 
     print("Evaluation complete.")
     return preds, trues
