@@ -1,0 +1,143 @@
+import numpy as np
+import torch
+from pathlib import Path
+import shutil
+import os
+
+from model_autoencoder import JVAutoencoder
+from ae_metrics import (
+    compute_basic_errors,
+    compute_physics_metrics,
+    extract_physics_from_curve
+)
+from ae_plotting import (
+    plot_error_histogram,
+    plot_voltage_error,
+    plot_pred_vs_actual,
+    plot_reconstructed_curves,
+    plot_physics_error,
+    plot_error_vs_weather,
+    plot_error_vs_physics_params,
+    plot_error_heatmap
+)
+from ae_latent import (
+    compute_latent_vectors,
+    plot_latent_umap,
+    plot_latent_tsne
+)
+
+
+def ensure_dir(path):
+    os.makedirs(path, exist_ok=True)
+
+def reset_dir(path):
+    if os.path.exists(path):
+        shutil.rmtree(path)
+    os.makedirs(path, exist_ok=True)
+
+
+def evaluate_autoencoder(model_path, dataset_path, tech, weather_csv=None, physics_params=None):
+    # ---------------------------------------------------------
+    # Output directories
+    # ---------------------------------------------------------
+    base_dir = Path(f"outputs/{tech}/ae")
+    plot_dir = base_dir / "plots"
+    metric_dir = base_dir / "metrics"
+    curve_dir = base_dir / "curves"
+    latent_dir = base_dir / "latent"
+    physics_dir = base_dir / "physics"
+    weather_dir = base_dir / "weather"
+
+    for d in [plot_dir, metric_dir, curve_dir, latent_dir, physics_dir, weather_dir]:
+        reset_dir(d)
+
+    # ---------------------------------------------------------
+    # Load dataset
+    # ---------------------------------------------------------
+    data = np.load(dataset_path, allow_pickle=True)
+    jv_in = data["jv_input"]
+    jv_tgt = data["jv_target"]
+    weather = data["weather"]
+    V_grid = data["V_grid"]
+
+    jv_dim = jv_in.shape[1]
+    weather_dim = weather.shape[1]
+
+    # ---------------------------------------------------------
+    # Load model
+    # ---------------------------------------------------------
+    ckpt = torch.load(model_path, map_location="cpu")
+    model = JVAutoencoder(jv_dim, weather_dim, ckpt["latent_dim"])
+    model.load_state_dict(ckpt["model_state_dict"])
+    model.eval()
+
+    # ---------------------------------------------------------
+    # Predict
+    # ---------------------------------------------------------
+    preds = []
+    with torch.no_grad():
+        for i in range(len(jv_in)):
+            jv_recon, _ = model(
+                torch.tensor(jv_in[i]).unsqueeze(0),
+                torch.tensor(weather[i]).unsqueeze(0)
+            )
+            preds.append(jv_recon.squeeze().numpy())
+
+    preds = np.array(preds)
+
+    # ---------------------------------------------------------
+    # Compute metrics
+    # ---------------------------------------------------------
+    mse, mae, rmse, r2 = compute_basic_errors(preds, jv_tgt)
+    np.savetxt(metric_dir / "basic_errors.csv",
+               np.vstack([mse, mae, rmse, r2]).T,
+               delimiter=",",
+               header="MSE,MAE,RMSE,R2",
+               comments="")
+
+    # ---------------------------------------------------------
+    # Physics metrics
+    # ---------------------------------------------------------
+    Voc_t, Jsc_t, Pmpp_t, FF_t = extract_physics_from_curve(jv_tgt, V_grid)
+    Voc_p, Jsc_p, Pmpp_p, FF_p = extract_physics_from_curve(preds, V_grid)
+
+    physics_metrics = compute_physics_metrics(
+        Voc_t, Voc_p, Jsc_t, Jsc_p, Pmpp_t, Pmpp_p, FF_t, FF_p
+    )
+    np.savetxt(physics_dir / "physics_errors.csv",
+               physics_metrics,
+               delimiter=",",
+               header="dVoc,dJsc,dPmpp,dFF",
+               comments="")
+
+    # ---------------------------------------------------------
+    # Plotting
+    # ---------------------------------------------------------
+    plot_error_histogram(mse, mae, rmse, r2, plot_dir)
+    plot_voltage_error(V_grid, preds, jv_tgt, plot_dir)
+    plot_pred_vs_actual(preds, jv_tgt, plot_dir)
+    plot_reconstructed_curves(V_grid, jv_in, jv_tgt, preds, curve_dir)
+    plot_physics_error(Voc_t, Voc_p, Jsc_t, Jsc_p, Pmpp_t, Pmpp_p, FF_t, FF_p, physics_dir)
+    plot_error_heatmap(preds, jv_tgt, plot_dir)
+
+    # ---------------------------------------------------------
+    # Weather-conditioned error
+    # ---------------------------------------------------------
+    if weather_csv is not None:
+        plot_error_vs_weather(mse, weather_csv, weather_dir)
+
+    # ---------------------------------------------------------
+    # Physics-parameter error correlation
+    # ---------------------------------------------------------
+    if physics_params is not None:
+        plot_error_vs_physics_params(mse, physics_params, physics_dir)
+
+    # ---------------------------------------------------------
+    # Latent space
+    # ---------------------------------------------------------
+    Z = compute_latent_vectors(model, jv_in, weather)
+    plot_latent_umap(Z, latent_dir)
+    plot_latent_tsne(Z, latent_dir)
+
+    print(f"AE evaluation complete → outputs/{tech}/ae/")
+    return preds

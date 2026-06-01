@@ -10,6 +10,9 @@ from jv_weather_pipeline import build_jv_weather_pipeline
 from build_dataset import build_dataset
 from train_lstm import train
 from evaluate_lstm import evaluate
+from build_jv_ae_dataset_from_influx import build_jv_autoencoder_dataset
+from train_autoencoder import train as train_ae
+from evaluate_autoencoder import evaluate_autoencoder as evaluate_ae
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -17,12 +20,16 @@ TECH_CONFIG = {
     "SunPower_5-1": {
         "weather_csv": "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_jv_cleaned.csv",
         "raw_weather": "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_data_10min_cleaned.csv",
-        "model_path": "models/jv_model_silicon.pth"
+        "model_path": "models/jv_model_silicon.pth",
+        "ae_dataset": "data/jv_autoencoder_dataset_silicon.npz",
+        "ae_model_path": "models/jv_autoencoder_silicon.pth"
     },
     "Perovskite_5&6": {
         "weather_csv": "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_jv_cleaned.csv",
         "raw_weather": "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_data_10min_cleaned.csv",
-        "model_path": "models/jv_model_perovskite.pth"
+        "model_path": "models/jv_model_perovskite.pth",
+        "ae_dataset": "data/jv_autoencoder_dataset_perovskite.npz",
+        "ae_model_path": "models/jv_autoencoder_perovskite.pth"
     }
 }
 
@@ -72,6 +79,18 @@ def run_build(tech, logger):
     logger.info(f"Dataset build complete for {tech}")
     return result
 
+def run_build_ae(tech, logger):
+    cfg = TECH_CONFIG[tech]
+    logger.info(f"=== STEP AE-1: Building Autoencoder dataset for {tech} ===")
+
+    build_jv_autoencoder_dataset(
+        tech=tech,
+        weather_csv=cfg["weather_csv"],
+        out_file=cfg["ae_dataset"]
+    )
+
+    logger.info(f"AE dataset built → {cfg['ae_dataset']}")
+
 # ---------------------------------------------------------
 # Train
 # ---------------------------------------------------------
@@ -81,6 +100,19 @@ def run_train(tech, logger, run_dir, dataset):
 
     train(dataset, tech, model_path=cfg["model_path"], run_dir=run_dir)
     logger.info(f"Training complete → {cfg['model_path']}")
+
+def run_train_ae(tech, logger, run_dir):
+    cfg = TECH_CONFIG[tech]
+    logger.info(f"=== STEP AE-2: Training Autoencoder for {tech} ===")
+
+    train_ae(
+    dataset_path=cfg["ae_dataset"],
+    model_path=cfg["ae_model_path"],
+    out_dir=os.path.join(run_dir, "ae"),
+    latent_dim=32
+    )
+
+    logger.info(f"AE training complete → {cfg['ae_model_path']}")
 
 # ---------------------------------------------------------
 # Evaluate
@@ -93,10 +125,22 @@ def run_evaluate(tech, logger):
         weather_csv=cfg["weather_csv"])
     logger.info(f"Evaluation complete for {tech}")
 
+def run_evaluate_ae(tech, logger):
+    cfg = TECH_CONFIG[tech]
+    logger.info(f"=== STEP AE-3: Evaluating Autoencoder for {tech} ===")
+
+    evaluate_ae(
+        model_path=cfg["ae_model_path"],
+        dataset_path=cfg["ae_dataset"],
+        tech=tech
+    )
+
+    logger.info(f"AE evaluation complete for {tech}")
+
 # ---------------------------------------------------------
 # Full pipeline
 # ---------------------------------------------------------
-def run_full_pipeline(tech):
+def run_full_pipeline(tech, run_ae=False):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     run_dir = f"runs/{timestamp}_{tech}"
     os.makedirs(run_dir, exist_ok=True)
@@ -112,6 +156,10 @@ def run_full_pipeline(tech):
 
     run_train(tech, logger, run_dir, dataset)
     run_evaluate(tech, logger)
+    if run_ae:
+        run_build_ae(tech, logger)
+        run_train_ae(tech, logger, run_dir)
+        run_evaluate_ae(tech, logger)
 
     logger.info(f"Pipeline finished for {tech}")
 
@@ -125,6 +173,8 @@ def main():
                         help="Technology: SunPower_5-1 or Perovskite_5&6")
     parser.add_argument("--all", action="store_true",
                         help="Run full pipeline for both technologies")
+    parser.add_argument("--ae", action="store_true",
+                        help="Run Autoencoder pipeline steps")
 
     args = parser.parse_args()
 
@@ -137,7 +187,7 @@ def main():
         print("Please specify --tech Silicon or --tech Perovskite_5&6")
         return
 
-    run_full_pipeline(args.tech)
+    run_full_pipeline(args.tech, run_ae=args.ae)
 
 if __name__ == "__main__":
     main()
