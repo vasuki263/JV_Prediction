@@ -1,31 +1,29 @@
-# two_diode_fit.py — Stable Two‑Diode Model Fitting (Overflow‑Safe, Robust)
-
 import numpy as np
 from scipy.optimize import curve_fit
 
+# ---------------------------------------------------------
 # Physical constants
+# ---------------------------------------------------------
 k = 1.380649e-23
 q = 1.602176634e-19
 T = 298.15
-Vt = k * T / q   # thermal voltage ~ 25.8 mV
+Vt = k * T / q   # thermal voltage (~25.8 mV)
 
 
 # ---------------------------------------------------------
 # Safe exponential (prevents overflow)
 # ---------------------------------------------------------
 def safe_exp(x):
-    return np.exp(np.clip(x, -50, 50))   # clamps exponent to avoid overflow
+    return np.exp(np.clip(x, -50, 50))
 
 
-# ---------------------------------------------------------
-# Two‑diode model (explicit approximation)
-# ---------------------------------------------------------
 def two_diode_model(V, Jph, J01, J02, n1, n2, Rs, Rsh):
     """
-    Explicit two‑diode model (Rs handled weakly but stable).
-    Good enough for extracting recombination trends.
+    Explicit two‑diode model.
+    Rs is handled weakly (no implicit iteration), but stable enough
+    for extracting recombination trends.
     """
-    Vd = V  # simplified diode voltage (implicit Rs would require iteration)
+    Vd = V  # simplified diode voltage
 
     term1 = J01 * (safe_exp(Vd / (n1 * Vt)) - 1.0)
     term2 = J02 * (safe_exp(Vd / (n2 * Vt)) - 1.0)
@@ -35,11 +33,11 @@ def two_diode_model(V, Jph, J01, J02, n1, n2, Rs, Rsh):
 
 
 # ---------------------------------------------------------
-# Two‑diode fitting wrapper
+# Two‑diode fitting
 # ---------------------------------------------------------
 def fit_two_diode(V, I):
-    V = np.array(V, dtype=float)
-    I = np.array(I, dtype=float)
+    V = np.asarray(V, dtype=float)
+    I = np.asarray(I, dtype=float)
 
     # Not enough points → return NaNs
     if len(V) < 10:
@@ -49,7 +47,7 @@ def fit_two_diode(V, I):
         }
 
     # Initial guesses
-    Jph_guess = max(I) if np.max(I) > 0 else np.abs(np.min(I))
+    Jph_guess = max(I) if np.max(I) > 0 else abs(np.min(I))
 
     p0 = [
         Jph_guess,   # Jph
@@ -63,8 +61,8 @@ def fit_two_diode(V, I):
 
     # Physically meaningful bounds
     bounds = (
-        [0.0, 1e-15, 1e-15, 1.0, 1.0, 0.0, 1.0],       # lower bounds
-        [2*Jph_guess, 1e-6, 1e-6, 2.0, 4.0, 50.0, 1e7] # upper bounds
+        [0.0, 1e-15, 1e-15, 1.0, 1.0, 0.0, 1.0],        # lower
+        [2 * Jph_guess, 1e-6, 1e-6, 2.0, 4.0, 50.0, 1e7]  # upper
     )
 
     try:
@@ -74,8 +72,8 @@ def fit_two_diode(V, I):
             I,
             p0=p0,
             bounds=bounds,
-            method="trf",          # Trust Region Reflective (robust)
-            loss="soft_l1",        # robust to noise/outliers
+            method="trf", # Trust Region Reflective
+            loss="soft_l1", # robust to noise/outliers
             f_scale=0.1,
             maxfev=20000
         )

@@ -33,7 +33,7 @@ def train(
     out_dir="models/autoencoder",
     batch_size=64,
     lr=1e-3,
-    epochs=100,
+    epochs=200,
     val_split=0.2,
     latent_dim=32,
 ):

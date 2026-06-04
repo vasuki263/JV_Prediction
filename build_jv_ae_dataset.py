@@ -1,8 +1,5 @@
-# build_jv_ae_dataset_from_influx.py
-
 import numpy as np
 import pandas as pd
-from pathlib import Path
 from scipy.interpolate import interp1d
 from scipy.signal import savgol_filter
 

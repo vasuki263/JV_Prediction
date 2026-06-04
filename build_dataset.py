@@ -1,4 +1,4 @@
-# build_dataset.py — UPDATED FOR INFLUXDB-BASED JV EXTRACTION
+# build_dataset.py
 
 import numpy as np
 import torch
@@ -7,23 +7,19 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 import pandas as pd
 
-from extract_clean_jv import extract_all_from_influx   # NEW
+from extract_clean_jv import extract_all_from_influx
 from two_diode_fit import fit_two_diode
 from dotenv import load_dotenv
 load_dotenv()
 
 
 # ---------------------------------------------------------
-# Nearest timestamp helper
+# Helpers
 # ---------------------------------------------------------
 def nearest_timestamp(df, ts):
     idx = df.index.get_indexer([ts], method="nearest")[0]
     return df.iloc[idx]
 
-
-# ---------------------------------------------------------
-# Downsample JV curve to fixed length
-# ---------------------------------------------------------
 def downsample(v, i, n=100):
     n0 = min(len(v), len(i))
     idx = np.linspace(0, n0 - 1, n).astype(int)
@@ -31,12 +27,12 @@ def downsample(v, i, n=100):
 
 
 # ---------------------------------------------------------
-# MAIN DATASET BUILDER (UPDATED)
+# Main dataset builder
 # ---------------------------------------------------------
 def build_dataset(tech, clean_weather_path, batch=32):
 
     # -----------------------------------------------------
-    # 1. Extract JV samples using InfluxDB → S3 GetObject
+    # 1. Extract JV samples
     # -----------------------------------------------------
     samples = extract_all_from_influx(tech)
     print("DEBUG: number of samples:", len(samples))
@@ -45,11 +41,16 @@ def build_dataset(tech, clean_weather_path, batch=32):
         raise RuntimeError(f"No JV samples found for tech={tech}")
 
     # -----------------------------------------------------
-    # 2. Load weather data
+    # 2. Load & clean weather data
     # -----------------------------------------------------
-    weather = pd.read_csv(clean_weather_path, parse_dates=["timestamp"])
-    weather = weather.set_index("timestamp").sort_index()
-    weather = weather.ffill().bfill().fillna(0)
+    weather = (
+        pd.read_csv(clean_weather_path, parse_dates=["timestamp"])
+        .set_index("timestamp")
+        .sort_index()
+        .ffill()
+        .bfill()
+        .fillna(0)
+    )
 
     # -----------------------------------------------------
     # 3. Prepare scalers
@@ -64,7 +65,7 @@ def build_dataset(tech, clean_weather_path, batch=32):
         "cloud": MinMaxScaler(),
         "precip": MinMaxScaler(),
         "glob": MinMaxScaler(),
-        "y": MinMaxScaler()   # NEW: replaces "targets"
+        "y": MinMaxScaler(),  # Voc, Jsc, Pmpp
     }
 
     # Fit JV scalers
@@ -87,8 +88,7 @@ def build_dataset(tech, clean_weather_path, batch=32):
 
     # Fit target scaler
     targets = np.array([[s["Voc"], s["Jsc"], s["Pmpp"]] for s in samples])
-    targets = np.nan_to_num(targets, nan=0.0)
-    scalers["y"].fit(targets)
+    scalers["y"].fit(np.nan_to_num(targets, nan=0.0))
 
     # -----------------------------------------------------
     # 4. Build feature blocks
@@ -109,24 +109,18 @@ def build_dataset(tech, clean_weather_path, batch=32):
             "timestamp": s["timestamp"],
             "voltage_raw": v_raw,
             "current_raw": i_raw,
-            "Rs": params["Rs"],
-            "Rsh": params["Rsh"],
-            "n1": params["n1"],
-            "n2": params["n2"],
-            "J01": params["J01"],
-            "J02": params["J02"],
-            "Jph": params["Jph"]
+            **params
         })
 
         # Downsample JV
         v, i = downsample(v_raw, i_raw)
 
         # Scale JV
-        v = scalers["voltage"].transform(v.reshape(-1, 1))
-        i = scalers["current"].transform(i.reshape(-1, 1))
+        v_scaled = scalers["voltage"].transform(v.reshape(-1, 1))
+        i_scaled = scalers["current"].transform(i.reshape(-1, 1))
         sweep = np.linspace(0, 1, len(v)).reshape(-1, 1)
 
-        # Module temperature + irradiance
+        # Module conditions
         temp_mod = scalers["temperature"].transform([[s["temperature"]]])[0][0]
         irr_mod = scalers["irradiance"].transform([[s["irradiance"]]])[0][0]
 
@@ -142,25 +136,23 @@ def build_dataset(tech, clean_weather_path, batch=32):
             scalers["humidity"].transform([[w["humidity"]]])[0][0],
             scalers["cloud"].transform([[w["cloud_cover"]]])[0][0],
             scalers["precip"].transform([[w["precip_mm"]]])[0][0],
-            scalers["glob"].transform([[w["global_radiation"]]])[0][0]
+            scalers["glob"].transform([[w["global_radiation"]]])[0][0],
         ])
 
         # Build 10-feature block
-        sample_block = np.zeros((len(v), 10))
-        sample_block[:, 0] = v.flatten()
-        sample_block[:, 1] = i.flatten()
-        sample_block[:, 2] = sweep.flatten()
-        sample_block[:, 3] = temp_mod
-        sample_block[:, 4] = irr_mod
-        sample_block[:, 5:10] = w_scaled
+        block = np.zeros((len(v), 10))
+        block[:, 0] = v_scaled.flatten()
+        block[:, 1] = i_scaled.flatten()
+        block[:, 2] = sweep.flatten()
+        block[:, 3] = temp_mod
+        block[:, 4] = irr_mod
+        block[:, 5:10] = w_scaled
 
-        sample_block = np.nan_to_num(sample_block, nan=0.0)
-        final_X.append(sample_block)
+        final_X.append(np.nan_to_num(block, nan=0.0))
 
-        # Targets: Voc, Jsc, Pmpp
+        # Targets
         y = scalers["y"].transform([[s["Voc"], s["Jsc"], s["Pmpp"]]])[0]
-        y = np.nan_to_num(y, nan=0.0)
-        final_Y.append(y)
+        final_Y.append(np.nan_to_num(y, nan=0.0))
 
     # -----------------------------------------------------
     # 5. Convert to tensors
