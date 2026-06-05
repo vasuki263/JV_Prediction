@@ -24,8 +24,14 @@ def safe_interpolate_to_grid(V, I, V_grid):
 
     try:
         idx = np.argsort(V)
-        f = interp1d(V[idx], I[idx], kind="linear", bounds_error=False, fill_value="extrapolate")
+        f = interp1d(V[idx], I[idx], kind="linear", bounds_error=False, fill_value=np.nan)
         I_grid = f(V_grid)
+        valid = np.isfinite(I_grid)
+
+        if valid.sum() < 5:
+            return None
+        # hold edge values instead of extrapolating
+        I_grid = pd.Series(I_grid).ffill().bfill().to_numpy()
     except Exception:
         return None
 
