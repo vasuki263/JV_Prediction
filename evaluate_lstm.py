@@ -31,7 +31,7 @@ def reconstruct_jv_curve(Voc, Jsc, Pmpp, num_points=100):
     Jsc = max(Jsc, 1e-6)
 
     V = np.linspace(0, Voc, num_points)
-    FF = np.clip(Pmpp / (Voc * Jsc + 1e-9), 0.01, 0.85)
+    FF = np.clip(Pmpp / (Voc * Jsc + 1e-12), 0.01, 0.85)
 
     Vmpp = FF * Voc
     Impp = FF * Jsc
@@ -160,22 +160,25 @@ def evaluate(tech, weather_csv, model_path="jv_model.pth"):
     err_Jsc = np.abs(trues[:, 1] - preds[:, 1])
     err_Pmpp = np.abs(trues[:, 2] - preds[:, 2])
 
+    FF_true = trues[:, 2] / (trues[:, 0] * trues[:, 1] + 1e-12)
+    FF_pred = preds[:, 2] / (preds[:, 0] * preds[:, 1] + 1e-12)
+
     # Save predictions
     df = pd.DataFrame({
         "Voc_true": trues[:, 0], "Voc_pred": preds[:, 0],
         "Jsc_true": trues[:, 1], "Jsc_pred": preds[:, 1],
+        "FF_true": FF_true,
+        "FF_pred": FF_pred,
         "Pmpp_true": trues[:, 2], "Pmpp_pred": preds[:, 2],
         "err_Voc": err_Voc, "err_Jsc": err_Jsc, "err_Pmpp": err_Pmpp
     })
+
     df.to_csv(os.path.join(base_metric_dir, "predictions_vs_true.csv"), index=False)
 
     # True vs Predicted plots
     plot_true_vs_pred(trues[:, 0], preds[:, 0], "Voc", base_plot_dir)
     plot_true_vs_pred(trues[:, 1], preds[:, 1], "Jsc", base_plot_dir)
     plot_true_vs_pred(trues[:, 2], preds[:, 2], "Pmpp", base_plot_dir)
-
-    FF_true = trues[:, 2] / (trues[:, 0] * trues[:, 1] + 1e-9)
-    FF_pred = preds[:, 2] / (preds[:, 0] * preds[:, 1] + 1e-9)
     plot_true_vs_pred(FF_true, FF_pred, "FF", base_plot_dir)
 
     # JV curve plots

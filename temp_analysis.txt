@@ -1,0 +1,162 @@
+The temperature coefficient **γ (gamma)** tells you **how sensitive a parameter is to temperature**.
+
+In your code:
+
+```python
+slope = np.polyfit(temps, values, 1)[0]
+
+gamma = slope / np.mean(values) * 100
+```
+
+you're calculating:
+
+[
+\gamma = \frac{1}{Y}\frac{dY}{dT}\times100
+]
+
+with units:
+
+[
+% / ^\circ C
+]
+
+where (Y) is Voc, Jsc, FF, or Pmpp.
+
+---
+
+### Interpretation
+
+Suppose your model predicts:
+
+| Temperature (°C) | Voc (V) |
+| ---------------- | ------: |
+| 20               |    10.0 |
+| 40               |     9.8 |
+| 60               |     9.6 |
+| 80               |     9.4 |
+
+The fitted slope is:
+
+[
+\frac{9.4-10.0}{80-20}
+======================
+
+-0.01 ;V/^\circ C
+]
+
+Average Voc ≈ 9.7 V
+
+So:
+
+[
+\gamma
+======
+
+\frac{-0.01}{9.7}
+\times100
+=========
+
+-0.103%/^\circ C
+]
+
+This means:
+
+> For every 1°C increase in temperature, Voc decreases by approximately 0.103%.
+
+---
+
+### Sign of γ
+
+#### Negative γ
+
+[
+\gamma < 0
+]
+
+Parameter decreases as temperature increases.
+
+Example:
+
+* Voc
+* FF
+* Pmpp
+
+usually have negative temperature coefficients.
+
+---
+
+#### Positive γ
+
+[
+\gamma > 0
+]
+
+Parameter increases as temperature increases.
+
+Example:
+
+* Jsc often has a small positive coefficient in many PV technologies.
+
+---
+
+### Why use γ instead of slope?
+
+Suppose:
+
+| Parameter |      Slope |
+| --------- | ---------: |
+| Voc       | -0.05 V/°C |
+| Pmpp      | -0.20 W/°C |
+
+Which is more temperature sensitive?
+
+You can't tell directly because the units differ.
+
+Gamma normalizes the slope:
+
+[
+\gamma = \frac{\text{slope}}{\text{parameter}}
+]
+
+making different parameters comparable.
+
+Example:
+
+| Parameter |          γ |
+| --------- | ---------: |
+| Voc       | -0.25 %/°C |
+| Pmpp      | -0.45 %/°C |
+
+Now you can say:
+
+> Pmpp is more temperature-sensitive than Voc.
+
+---
+
+### In your temperature sweep
+
+If you obtain:
+
+| Parameter | γ (%/°C) |
+| --------- | -------: |
+| Voc       |    -0.30 |
+| Jsc       |    +0.05 |
+| FF        |    -0.15 |
+| Pmpp      |    -0.40 |
+
+the interpretation would be:
+
+* **Voc:** decreases by 0.30% for every °C increase
+* **Jsc:** increases slightly with temperature
+* **FF:** decreases moderately
+* **Pmpp:** loses 0.40% of power per °C
+
+This is exactly the type of result commonly reported in PV performance studies.
+
+---
+
+### For your thesis
+
+A concise interpretation is:
+
+> The temperature coefficient γ quantifies the relative change of a photovoltaic parameter per degree Celsius. Negative values indicate degradation with increasing temperature, while positive values indicate improvement. The magnitude of γ reflects the parameter's sensitivity to temperature and enables comparison across different performance metrics.

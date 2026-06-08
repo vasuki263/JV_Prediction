@@ -93,7 +93,7 @@ def plot_physics_error(Voc_t, Voc_p, Jsc_t, Jsc_p, Pmpp_t, Pmpp_p, FF_t, FF_p, o
         plt.title(f"True vs Predicted {name}")
         plt.grid(alpha=0.3)
         plt.tight_layout()
-        plt.savefig(out_dir / f"{name}_true_vs_pred.png", dpi=150)
+        plt.savefig(out_dir / f"Errors_{name}_true_vs_pred.png", dpi=150)
         plt.close()
 
 
@@ -123,3 +123,17 @@ def plot_error_vs_physics_params(errors, params, out_dir: Path):
         plt.tight_layout()
         plt.savefig(out_dir / f"error_vs_{key}.png", dpi=150)
         plt.close()
+
+def plot_param(true_vals, pred_vals, name, save_dir):
+    plt.figure(figsize=(6,6))
+    plt.scatter(true_vals, pred_vals, alpha=0.6)
+    plt.plot([min(true_vals), max(true_vals)],
+             [min(true_vals), max(true_vals)],
+             'r--', label="Ideal")
+    plt.xlabel(f"True {name}")
+    plt.ylabel(f"Predicted {name}")
+    plt.title(f"True vs Predicted {name}")
+    plt.grid(True)
+    plt.legend()
+    plt.savefig(save_dir / f"{name}_true_vs_pred.png")
+    plt.close()

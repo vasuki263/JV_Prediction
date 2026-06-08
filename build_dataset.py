@@ -35,6 +35,37 @@ def build_dataset(tech, clean_weather_path, batch=32):
     # 1. Extract JV samples
     # -----------------------------------------------------
     samples = extract_all_from_influx(tech)
+    clean_samples = []
+
+    for s in samples:
+
+        Voc = float(s["Voc"])
+        Jsc = float(s["Jsc"])
+        Pmpp = float(s["Pmpp"])
+
+        if not (
+                np.isfinite(Voc)
+                and np.isfinite(Jsc)
+                and np.isfinite(Pmpp)
+        ):
+            continue
+
+        if Voc < 20:
+            continue
+
+        if Jsc <= 0:
+            continue
+
+        if Pmpp <= 0:
+            continue
+
+        clean_samples.append(s)
+
+    print(
+        f"Removed {len(samples) - len(clean_samples)} invalid samples"
+    )
+
+    samples = clean_samples
     print("DEBUG: number of samples:", len(samples))
 
     if len(samples) == 0:
@@ -87,7 +118,10 @@ def build_dataset(tech, clean_weather_path, batch=32):
     scalers["glob"].fit(weather["global_radiation"].values.reshape(-1, 1))
 
     # Fit target scaler
-    targets = np.array([[s["Voc"], s["Jsc"], s["Pmpp"]] for s in samples])
+    targets = np.array([[s["Voc"], s["Jsc"], s["Pmpp"]]for s in samples])
+    print("Voc :", targets[:, 0].min(), targets[:, 0].max())
+    print("Jsc :", targets[:, 1].min(), targets[:, 1].max())
+    print("Pmpp:", targets[:, 2].min(), targets[:, 2].max())
     scalers["y"].fit(np.nan_to_num(targets, nan=0.0))
 
     # -----------------------------------------------------
@@ -151,7 +185,7 @@ def build_dataset(tech, clean_weather_path, batch=32):
         final_X.append(np.nan_to_num(block, nan=0.0))
 
         # Targets
-        y = scalers["y"].transform([[s["Voc"], s["Jsc"], s["Pmpp"]]])[0]
+        y = scalers["y"].transform([[s["Voc"],s["Jsc"],s["Pmpp"]]])[0]
         final_Y.append(np.nan_to_num(y, nan=0.0))
 
     # -----------------------------------------------------
@@ -177,5 +211,16 @@ def build_dataset(tech, clean_weather_path, batch=32):
     train_loader = DataLoader(TensorDataset(X_train, Y_train), batch_size=batch, shuffle=True)
     val_loader   = DataLoader(TensorDataset(X_val, Y_val), batch_size=batch, shuffle=False)
     test_loader  = DataLoader(TensorDataset(X_test, Y_test), batch_size=batch, shuffle=False)
+    # -----------------------------------------------------
+    # 8. Save dataset for LSTM temperature analysis
+    # -----------------------------------------------------
+    np.savez(
+        f"data/jv_dataset_{tech}.npz",
+        X=X.numpy(),
+        Y=Y.numpy(),
+        scalers=scalers
+    )
+    print(f"[INFO] Saved LSTM dataset --> data/jv_dataset_{tech}.npz")
+
 
     return train_loader, val_loader, test_loader, scalers, raw_test

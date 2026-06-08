@@ -50,6 +50,27 @@ def extract_physics_from_curve(jv, V_grid):
         np.array(FF),
     )
 
+def extract_physics_single_curve(J, V):
+    """
+    Extract Voc, Jsc, Pmpp, FF from a single JV curve.
+    J: current array
+    V: voltage array
+    """
+    # Jsc = current at V closest to 0
+    Jsc = J[np.argmin(np.abs(V))]
+
+    # Voc = voltage where current crosses zero
+    Voc = np.interp(0, J[::-1], V[::-1])
+
+    # Power curve
+    P = V * J
+    idx = np.argmax(P)
+    Vmpp, Jmpp, Pmpp = V[idx], J[idx], P[idx]
+
+    # Fill Factor
+    FF = (Vmpp * Jmpp) / (Voc * Jsc)
+
+    return Voc, Jsc, Pmpp, FF
 
 # ---------------------------------------------------------
 # Compute physics‑metric deltas

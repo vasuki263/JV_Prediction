@@ -14,23 +14,36 @@ from evaluate_lstm import evaluate as eval_lstm
 from build_jv_ae_dataset import build_jv_autoencoder_dataset
 from train_autoencoder import train as train_ae
 from evaluate_autoencoder import evaluate_autoencoder as eval_ae
+from temp_analysis import analyze_temperature
+import numpy as np
 
 
 # ---------------------------------------------------------
-# Configuration
+# Configuration (UPDATED FOR LSTM)
 # ---------------------------------------------------------
 TECH_CONFIG = {
     "SunPower_5-1": {
         "weather_csv": "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_jv_cleaned.csv",
         "raw_weather": "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_data_10min_cleaned.csv",
-        "model_path": "models/jv_model_silicon.pth",
+
+        # LSTM paths (NEW)
+        "lstm_dataset": "data/jv_dataset_SunPower_5-1.npz",
+        "lstm_model_path": "models/jv_lstm_silicon.pth",
+
+        # AE paths (unchanged)
         "ae_dataset": "data/jv_autoencoder_dataset_silicon.npz",
         "ae_model_path": "models/jv_autoencoder_silicon.pth",
     },
+
     "Perovskite_5&6": {
         "weather_csv": "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_jv_cleaned.csv",
         "raw_weather": "C:/Users/Lenovo/Desktop/Master Thesis/jv_forecasting/weather_data_10min_cleaned.csv",
-        "model_path": "models/jv_model_perovskite.pth",
+
+        # LSTM paths (NEW)
+        "lstm_dataset": "data/jv_dataset_Perovskite_5&6.npz",
+        "lstm_model_path": "models/jv_lstm_perovskite.pth",
+
+        # AE paths (unchanged)
         "ae_dataset": "data/jv_autoencoder_dataset_perovskite.npz",
         "ae_model_path": "models/jv_autoencoder_perovskite.pth",
     }
@@ -81,13 +94,13 @@ def step_dataset(cfg, logger):
 
 def step_train_lstm(cfg, logger, run_dir, dataset):
     logger.info("=== STEP 2: Training LSTM ===")
-    train_lstm(dataset, cfg["tech"], model_path=cfg["model_path"], run_dir=run_dir)
-    logger.info(f"LSTM model saved --> {cfg['model_path']}")
+    train_lstm(dataset, cfg["tech"], model_path=cfg["lstm_model_path"], run_dir=run_dir)
+    logger.info(f"LSTM model saved --> {cfg['lstm_model_path']}")
 
 
 def step_eval_lstm(cfg, logger):
     logger.info("=== STEP 3: Evaluating LSTM ===")
-    eval_lstm(model_path=cfg["model_path"], tech=cfg["tech"], weather_csv=cfg["weather_csv"])
+    eval_lstm(model_path=cfg["lstm_model_path"], tech=cfg["tech"], weather_csv=cfg["weather_csv"])
     logger.info("LSTM evaluation complete")
 
 
@@ -125,33 +138,37 @@ def step_eval_ae(cfg, logger):
 # ---------------------------------------------------------
 # Full Pipeline
 # ---------------------------------------------------------
-def run_full_pipeline(tech, run_ae=False):
-    cfg = TECH_CONFIG[tech].copy()
-    cfg["tech"] = tech
+def run_pipeline(cfg, args, logger, run_dir):
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    run_dir = f"runs/{timestamp}_{tech}"
-    os.makedirs(run_dir, exist_ok=True)
+    # LSTM training
+    if args.train_lstm or args.all:
+        dataset = step_dataset(cfg, logger)
+        step_train_lstm(cfg, logger, run_dir, dataset)
 
-    logger = setup_logger(os.path.join(run_dir, "pipeline.log"))
-    logger.info(f"Starting pipeline for {tech}")
-    logger.info(f"Run directory: {run_dir}")
+    # LSTM evaluation
+    if args.eval_lstm or args.all:
+        step_eval_lstm(cfg, logger)
 
-    step_weather(cfg, logger)
-
-    dataset = step_dataset(cfg, logger)
-    if dataset is None:
-        return
-
-    step_train_lstm(cfg, logger, run_dir, dataset)
-    step_eval_lstm(cfg, logger)
-
-    if run_ae:
+    # AE dataset build (needed for AE train/eval)
+    if args.train_ae or args.eval_ae:
         step_ae_dataset(cfg, logger)
+
+    # AE training
+    if args.train_ae or args.all:
         step_train_ae(cfg, logger, run_dir)
+
+    # AE evaluation
+    if args.eval_ae or args.all:
         step_eval_ae(cfg, logger)
 
-    logger.info(f"Pipeline finished for {tech}")
+    # Temperature analysis (NOW USING LSTM)
+    if args.temp or args.all:
+        analyze_temperature(
+            dataset_path=cfg["lstm_dataset"],
+            model_path=cfg["lstm_model_path"],
+            tech=cfg["tech"]
+        )
+        logger.info("Temperature analysis complete")
 
 
 # ---------------------------------------------------------
@@ -159,21 +176,43 @@ def run_full_pipeline(tech, run_ae=False):
 # ---------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="JV Forecasting Pipeline Runner")
-    parser.add_argument("--tech", type=str, help="SunPower_5-1 or Perovskite_5&6")
-    parser.add_argument("--all", action="store_true", help="Run for all technologies")
-    parser.add_argument("--ae", action="store_true", help="Include Autoencoder steps")
-    args = parser.parse_args()
 
-    if args.all:
-        for tech in TECH_CONFIG:
-            run_full_pipeline(tech, run_ae=args.ae)
-        return
+    parser.add_argument("--tech", type=str, help="SunPower_5-1 or Perovskite_5&6")
+
+    # LSTM controls
+    parser.add_argument("--train-lstm", action="store_true", help="Train LSTM only")
+    parser.add_argument("--eval-lstm", action="store_true", help="Evaluate LSTM only")
+
+    # AE controls
+    parser.add_argument("--train-ae", action="store_true", help="Train Autoencoder only")
+    parser.add_argument("--eval-ae", action="store_true", help="Evaluate Autoencoder only")
+
+    # Temperature analysis
+    parser.add_argument("--temp", action="store_true", help="Run temperature analysis")
+
+    # Run everything
+    parser.add_argument("--all", action="store_true", help="Run full pipeline")
+
+    args = parser.parse_args()
 
     if not args.tech:
         print("Please specify --tech SunPower_5-1 or --tech Perovskite_5&6")
         return
 
-    run_full_pipeline(args.tech, run_ae=args.ae)
+    cfg = TECH_CONFIG[args.tech].copy()
+    cfg["tech"] = args.tech
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    run_dir = f"runs/{timestamp}_{args.tech}"
+    os.makedirs(run_dir, exist_ok=True)
+
+    logger = setup_logger(os.path.join(run_dir, "pipeline.log"))
+    logger.info(f"Starting pipeline for {args.tech}")
+    logger.info(f"Run directory: {run_dir}")
+
+    run_pipeline(cfg, args, logger, run_dir)
+
+    logger.info("Pipeline finished")
 
 
 if __name__ == "__main__":
