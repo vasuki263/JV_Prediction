@@ -7,7 +7,7 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+import random
 from model_lstm import JV_LSTM
 
 
@@ -22,7 +22,15 @@ def reset_dir(path):
         shutil.rmtree(path)
     os.makedirs(path, exist_ok=True)
 
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
+    # Ensures deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 # ---------------------------------------------------------
 # Training function
 # ---------------------------------------------------------
@@ -47,6 +55,7 @@ def train(
     reset_dir(plot_dir)
     reset_dir(metric_dir)
 
+    set_seed(42)
     # -----------------------------------------------------
     # Dataset unpacking
     # -----------------------------------------------------

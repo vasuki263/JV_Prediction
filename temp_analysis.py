@@ -26,9 +26,9 @@ def temp_coeff(x, y):
     slope = np.polyfit(x, y, 1)[0]
 
     gamma = (
-        slope /
-        np.mean(y)
-        * 100
+            slope /
+            np.mean(y)
+            * 100
     )
 
     return gamma, slope
@@ -138,13 +138,14 @@ def analyze_temperature(
     # Reference sample
     # =====================================================
 
-    sample = X[0].copy()
+    # sample = X[0].copy()
+    sample = np.mean(X, axis=0)
 
     # =====================================================
     # Temperature sweep
     # =====================================================
 
-    temps = np.arange(20, 101, 5)
+    temps = np.arange(20, 75, 5)
 
     vocs = []
     jscs = []
@@ -176,7 +177,7 @@ def analyze_temperature(
         pred_phys = scalers["y"].inverse_transform(
             pred
         )
-        print(f"T={T}", pred_phys[0])
+        # print(f"T={T}", pred_phys[0])
 
         Voc, Jsc, Pmpp = pred_phys[0]
         FF = Pmpp / (Voc * Jsc + 1e-12)

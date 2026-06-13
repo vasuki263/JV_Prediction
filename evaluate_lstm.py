@@ -155,13 +155,40 @@ def evaluate(tech, weather_csv, model_path="jv_model.pth"):
     preds = scalers["y"].inverse_transform(np.vstack(preds))
     trues = scalers["y"].inverse_transform(np.vstack(trues))
 
+    # ---------------------------------------------------------
+    # Compute FF
+    # ---------------------------------------------------------
+    FF_true = trues[:, 2] / (trues[:, 0] * trues[:, 1] + 1e-12)
+    FF_pred = preds[:, 2] / (preds[:, 0] * preds[:, 1] + 1e-12)
+
+    # ---------------------------------------------------------
+    # Physical filtering
+    # ---------------------------------------------------------
+    # mask = (
+    #         np.isfinite(FF_true) &
+    #         np.isfinite(FF_pred) &
+    #         np.isfinite(trues).all(axis=1) &
+    #         np.isfinite(preds).all(axis=1) &
+    #         (trues[:, 0] > 0) &  # Voc
+    #         (trues[:, 1] > 0) &  # Jsc
+    #         (trues[:, 2] > 0) &  # Pmpp
+    #         (FF_true > 0.3) &
+    #         (FF_true < 0.95)
+    # )
+    #
+    # print(f"Keeping {mask.sum()} / {len(mask)} samples")
+    #
+    # trues = trues[mask]
+    # preds = preds[mask]
+    # FF_true = FF_true[mask]
+    # FF_pred = FF_pred[mask]
+    #
+    # # raw_test must match filtered samples
+    # raw_test = [raw_test[i] for i in np.where(mask)[0]]
     # Errors
     err_Voc = np.abs(trues[:, 0] - preds[:, 0])
     err_Jsc = np.abs(trues[:, 1] - preds[:, 1])
     err_Pmpp = np.abs(trues[:, 2] - preds[:, 2])
-
-    FF_true = trues[:, 2] / (trues[:, 0] * trues[:, 1] + 1e-12)
-    FF_pred = preds[:, 2] / (preds[:, 0] * preds[:, 1] + 1e-12)
 
     # Save predictions
     df = pd.DataFrame({
@@ -192,37 +219,37 @@ def evaluate(tech, weather_csv, model_path="jv_model.pth"):
         plot_reconstructed_jv(V_true, J_true, V_pred, J_pred, idx, base_plot_dir)
         plot_raw_vs_pred(raw_V[idx], raw_I[idx], V_pred, J_pred, idx, base_plot_dir)
 
-    # ---------------------------------------------------------
-    # RS / RSH effects
-    # ---------------------------------------------------------
-    Rs_vals  = np.array([e["Rs"]  for e in raw_test])
-    Rsh_vals = np.array([e["Rsh"] for e in raw_test])
-
-    Voc_true = trues[:, 0]
-    Jsc_true = trues[:, 1]
-    Pmpp_true = trues[:, 2]
-    FF_true = Pmpp_true / (Voc_true * Jsc_true + 1e-9)
-
-    for x, name in [(Rs_vals, "Rs"), (Rsh_vals, "Rsh")]:
-        plot_dependency(x, Voc_true, name, "Voc", base_plot_dir)
-        plot_dependency(x, Jsc_true, name, "Jsc", base_plot_dir)
-        plot_dependency(x, FF_true, name, "FF", base_plot_dir)
-        plot_dependency(x, Pmpp_true, name, "Pmpp", base_plot_dir)
-
-    # ---------------------------------------------------------
-    # Two‑diode parameter effects
-    # ---------------------------------------------------------
-    n1_vals  = np.array([e["n1"]  for e in raw_test])
-    n2_vals  = np.array([e["n2"]  for e in raw_test])
-    J01_vals = np.array([e["J01"] for e in raw_test])
-    J02_vals = np.array([e["J02"] for e in raw_test])
-    Jph_vals = np.array([e["Jph"] for e in raw_test])
-
-    plot_dependency(n1_vals, Voc_true, "n1", "Voc", base_plot_dir, subdir="two_diode")
-    plot_dependency(n2_vals, Voc_true, "n2", "Voc", base_plot_dir, subdir="two_diode")
-    plot_dependency(J02_vals, FF_true, "J02", "FF", base_plot_dir, subdir="two_diode")
-    plot_dependency(J01_vals, Voc_true, "J01", "Voc", base_plot_dir, subdir="two_diode")
-    plot_dependency(Jph_vals, Jsc_true, "Jph", "Jsc", base_plot_dir, subdir="two_diode")
+    # # ---------------------------------------------------------
+    # # RS / RSH effects
+    # # ---------------------------------------------------------
+    # Rs_vals  = np.array([e["Rs"]  for e in raw_test])
+    # Rsh_vals = np.array([e["Rsh"] for e in raw_test])
+    #
+    # Voc_true = trues[:, 0]
+    # Jsc_true = trues[:, 1]
+    # Pmpp_true = trues[:, 2]
+    # FF_true = Pmpp_true / (Voc_true * Jsc_true + 1e-9)
+    #
+    # for x, name in [(Rs_vals, "Rs"), (Rsh_vals, "Rsh")]:
+    #     plot_dependency(x, Voc_true, name, "Voc", base_plot_dir)
+    #     plot_dependency(x, Jsc_true, name, "Jsc", base_plot_dir)
+    #     plot_dependency(x, FF_true, name, "FF", base_plot_dir)
+    #     plot_dependency(x, Pmpp_true, name, "Pmpp", base_plot_dir)
+    #
+    # # ---------------------------------------------------------
+    # # Two‑diode parameter effects
+    # # ---------------------------------------------------------
+    # n1_vals  = np.array([e["n1"]  for e in raw_test])
+    # n2_vals  = np.array([e["n2"]  for e in raw_test])
+    # J01_vals = np.array([e["J01"] for e in raw_test])
+    # J02_vals = np.array([e["J02"] for e in raw_test])
+    # Jph_vals = np.array([e["Jph"] for e in raw_test])
+    #
+    # plot_dependency(n1_vals, Voc_true, "n1", "Voc", base_plot_dir, subdir="two_diode")
+    # plot_dependency(n2_vals, Voc_true, "n2", "Voc", base_plot_dir, subdir="two_diode")
+    # plot_dependency(J02_vals, FF_true, "J02", "FF", base_plot_dir, subdir="two_diode")
+    # plot_dependency(J01_vals, Voc_true, "J01", "Voc", base_plot_dir, subdir="two_diode")
+    # plot_dependency(Jph_vals, Jsc_true, "Jph", "Jsc", base_plot_dir, subdir="two_diode")
 
     print("Evaluation complete.")
     return preds, trues

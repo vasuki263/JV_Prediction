@@ -5,6 +5,9 @@ import logging
 from datetime import datetime
 
 from dotenv import load_dotenv
+
+from irradiance_analysis import analyze_irradiance
+
 load_dotenv()
 
 from jv_weather_pipeline import build_jv_weather_pipeline
@@ -170,6 +173,14 @@ def run_pipeline(cfg, args, logger, run_dir):
         )
         logger.info("Temperature analysis complete")
 
+    if args.irr or args.all:
+        analyze_irradiance(
+            dataset_path=cfg["lstm_dataset"],
+            model_path=cfg["lstm_model_path"],
+            tech=cfg["tech"]
+        )
+        logger.info("Irradiance analysis complete")
+
 
 # ---------------------------------------------------------
 # CLI
@@ -189,6 +200,9 @@ def main():
 
     # Temperature analysis
     parser.add_argument("--temp", action="store_true", help="Run temperature analysis")
+
+    # Irradiance analysis
+    parser.add_argument("--irr", action="store_true", help="Run irradiance analysis")
 
     # Run everything
     parser.add_argument("--all", action="store_true", help="Run full pipeline")

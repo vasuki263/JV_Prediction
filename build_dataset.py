@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 from torch.utils.data import TensorDataset, DataLoader
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.model_selection import train_test_split
 import pandas as pd
 
@@ -42,6 +42,8 @@ def build_dataset(tech, clean_weather_path, batch=32):
         Voc = float(s["Voc"])
         Jsc = float(s["Jsc"])
         Pmpp = float(s["Pmpp"])
+        FF = Pmpp / (Voc * Jsc + 1e-12)
+
 
         if not (
                 np.isfinite(Voc)
@@ -58,6 +60,9 @@ def build_dataset(tech, clean_weather_path, batch=32):
 
         if Pmpp <= 0:
             continue
+
+        # if FF < 0.3 or FF > 0.95:
+        #     continue
 
         clean_samples.append(s)
 
@@ -99,6 +104,20 @@ def build_dataset(tech, clean_weather_path, batch=32):
         "y": MinMaxScaler(),  # Voc, Jsc, Pmpp
     }
 
+    # scalers = {
+    #     "voltage": StandardScaler(),
+    #     "current": StandardScaler(),
+    #     "temperature": StandardScaler(),
+    #     "irradiance": StandardScaler(),
+    #     "temp_amb": StandardScaler(),
+    #     "humidity": StandardScaler(),
+    #     "cloud": StandardScaler(),
+    #     "precip": StandardScaler(),
+    #     "glob": StandardScaler(),
+    #     "y": StandardScaler(),  # Voc, Jsc, Pmpp
+    # }
+
+
     # Fit JV scalers
     all_v = np.concatenate([s["voltage"] for s in samples])
     all_i = np.concatenate([s["current"] for s in samples])
@@ -111,11 +130,16 @@ def build_dataset(tech, clean_weather_path, batch=32):
     scalers["irradiance"].fit(all_g)
 
     # Fit weather scalers
-    scalers["temp_amb"].fit(weather["temp_C"].values.reshape(-1, 1))
-    scalers["humidity"].fit(weather["humidity"].values.reshape(-1, 1))
-    scalers["cloud"].fit(weather["cloud_cover"].values.reshape(-1, 1))
-    scalers["precip"].fit(weather["precip_mm"].values.reshape(-1, 1))
-    scalers["glob"].fit(weather["global_radiation"].values.reshape(-1, 1))
+    # scalers["temp_amb"].fit(weather["temp_C"].values.reshape(-1, 1))
+    # scalers["humidity"].fit(weather["humidity"].values.reshape(-1, 1))
+    # scalers["cloud"].fit(weather["cloud_cover"].values.reshape(-1, 1))
+    # scalers["precip"].fit(weather["precip_mm"].values.reshape(-1, 1))
+    # scalers["glob"].fit(weather["global_radiation"].values.reshape(-1, 1))
+    scalers["glob"] = None
+    scalers["temp_amb"]=None
+    scalers["humidity"]=None
+    scalers["cloud"]=None
+    scalers["precip"]=None
 
     # Fit target scaler
     targets = np.array([[s["Voc"], s["Jsc"], s["Pmpp"]]for s in samples])
@@ -165,13 +189,16 @@ def build_dataset(tech, clean_weather_path, batch=32):
 
         w = nearest_timestamp(weather, ts)
 
-        w_scaled = np.array([
-            scalers["temp_amb"].transform([[w["temp_C"]]])[0][0],
-            scalers["humidity"].transform([[w["humidity"]]])[0][0],
-            scalers["cloud"].transform([[w["cloud_cover"]]])[0][0],
-            scalers["precip"].transform([[w["precip_mm"]]])[0][0],
-            scalers["glob"].transform([[w["global_radiation"]]])[0][0],
-        ])
+        # w_scaled = np.array([
+        #     scalers["temp_amb"].transform([[w["temp_C"]]])[0][0],
+        #     scalers["humidity"].transform([[w["humidity"]]])[0][0],
+        #     scalers["cloud"].transform([[w["cloud_cover"]]])[0][0],
+        #     scalers["precip"].transform([[w["precip_mm"]]])[0][0],
+        #     # scalers["glob"].transform([[w["global_radiation"]]])[0][0],
+        #     0.0,
+        # ])
+        # Weather features disabled → fill with zeros
+        w_scaled = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
 
         # Build 10-feature block
         block = np.zeros((len(v), 10))
