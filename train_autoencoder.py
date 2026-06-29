@@ -16,6 +16,7 @@ class JVPhysicsDataset(Dataset):
         self.jv_target = data["jv_target"].astype(np.float32)
         self.weather = data["weather"].astype(np.float32)
         self.V_grid = data["V_grid"].astype(np.float32)
+        self.diode_params = data["diode_params"].astype(np.float32)
 
     def __len__(self):
         return len(self.jv_input)
@@ -25,6 +26,7 @@ class JVPhysicsDataset(Dataset):
             self.jv_input[idx],
             self.jv_target[idx],
             self.weather[idx],
+            self.diode_params[idx],
         )
 
 
@@ -96,41 +98,44 @@ def train(
 
         train_loss = 0
 
-        for jv_in, jv_tgt, weather in train_loader:
+        for jv_in, jv_tgt, weather, diode_params in train_loader:
 
             jv_in = jv_in.to(device)
             jv_tgt = jv_tgt.to(device)
             weather = weather.to(device)
-            # Isc = np.max(jv_tgt, axis=1)
-            # Voc = V_grid[np.argmin(np.abs(jv_tgt), axis=1)]
-            #
-            # print(Isc.min(), Isc.max())
-            # print(Voc.min(), Voc.max())
+            diode_params = diode_params.to(device)
 
             opt.zero_grad()
 
-            jv_pred, _, params = model(
+            jv_pred, I_phys, delta_I, z = model(
                 jv_in,
-                weather
+                weather,
+                diode_params
             )
+            if epoch % 10 == 0:
+                print(
+                    f"Residual RMS: "
+                    f"{torch.sqrt((delta_I ** 2).mean()).item():.5f}"
+                )
 
-            loss_jv = loss_fn(
+            loss_recon = loss_fn(
                 jv_pred,
                 jv_tgt
             )
 
-            # loss_reg = (
-            #     1e-6 * params["Io"].mean()
-            #     + 1e-5 * params["Rs"].mean()
-            # )
-            loss_reg = (
-                    1e-3 * ((params["Rs"]) ** 2).mean()
-                    + 1e-3 * ((params["n"] - 1.3) ** 2).mean()
-                    + 1e-6 * ((params["Rsh"] - 1000) ** 2).mean()
-                    + 1e-3 * (params["Io"] ** 2).mean()
-            )
+            loss_residual = 1e-3 * (
+                    delta_I ** 2
+            ).mean()
 
-            loss = loss_jv + loss_reg
+            loss_latent = 1e-5 * (
+                    z ** 2
+            ).mean()
+
+            loss = (
+                    loss_recon
+                    + loss_residual
+                    + loss_latent
+            )
 
             loss.backward()
             opt.step()
@@ -152,15 +157,17 @@ def train(
 
         with torch.no_grad():
 
-            for jv_in, jv_tgt, weather in val_loader:
+            for jv_in, jv_tgt, weather, diode_params in val_loader:
 
                 jv_in = jv_in.to(device)
                 jv_tgt = jv_tgt.to(device)
                 weather = weather.to(device)
+                diode_params = diode_params.to(device)
 
-                jv_pred, _, _ = model(
+                jv_pred, I_phys, delta_I, z = model(
                     jv_in,
-                    weather
+                    weather,
+                    diode_params
                 )
 
                 loss = loss_fn(
@@ -187,14 +194,11 @@ def train(
 
             torch.save(
                 {
-                    "model_state_dict":
-                        model.state_dict(),
-                    "jv_dim":
-                        jv_dim,
-                    "weather_dim":
-                        weather_dim,
-                    "latent_dim":
-                        latent_dim,
+                    "model_state_dict": model.state_dict(),
+                    "jv_dim": jv_dim,
+                    "weather_dim": weather_dim,
+                    "latent_dim": latent_dim,
+                    "V_grid": V_grid,
                 },
                 model_path,
             )

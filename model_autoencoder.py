@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 
-
 class JVAutoencoder(nn.Module):
     """
     Conditional autoencoder for JV curve reconstruction.
@@ -142,18 +141,15 @@ class PhysicsInformedJVModel(nn.Module):
         encoder_layers.append(nn.Linear(prev_dim, latent_dim))
 
         self.encoder = nn.Sequential(*encoder_layers)
-
-        # --------------------------------------------------
-        # Parameter predictor
-        # --------------------------------------------------
-
-        self.param_head = nn.Sequential(
-            nn.Linear(latent_dim + weather_dim, 64),
+        self.residual_decoder = nn.Sequential(
+            nn.Linear(latent_dim + weather_dim, 128),
             nn.ReLU(),
-            nn.Linear(64, 32),
+            nn.Linear(128, 256),
             nn.ReLU(),
-            nn.Linear(32, 5),
+            nn.Linear(256, jv_dim),
         )
+
+
 
         # --------------------------------------------------
         # Voltage grid
@@ -167,51 +163,28 @@ class PhysicsInformedJVModel(nn.Module):
             )
         )
 
-        self.solver = SingleDiodeSolver()
+        self.solver = SingleDiodeSolver(
+    Ns=1
+)
 
-    def forward(self, jv, weather):
+    def forward(
+            self,
+            jv,
+            weather,
+            diode_params,
+    ):
+        x = torch.cat(
+            [jv, weather],
+            dim=-1
+        )
 
-        x = torch.cat([jv, weather], dim=-1)
-
-        # latent representation
         z = self.encoder(x)
 
-        z_cond = torch.cat([z, weather], dim=-1)
-
-        raw_params = self.param_head(z_cond)
-
-        # -------------------------------------------
-        # Physical constraints
-        # -------------------------------------------
-
-        # Iph = F.softplus(raw_params[:, 0]) + 1e-6
-        # Io = F.softplus(raw_params[:, 1]) + 1e-12
-        #
-        # n = F.softplus(raw_params[:, 2]) + 0.5
-        #
-        # Rs = F.softplus(raw_params[:, 3])
-        #
-        # Rsh = F.softplus(raw_params[:, 4]) + 1.0
-        # Photocurrent
-        Iph = 2.0 * torch.sigmoid(raw_params[:, 0])
-
-        # Saturation current
-        log_Io = -20.0 + 14.0 * torch.sigmoid(raw_params[:, 1])
-        Io = torch.exp(log_Io)
-
-        # Ideality factor
-        n = 1.0 + 1.5 * torch.sigmoid(raw_params[:, 2])
-
-        # Series resistance
-        Rs = 5.0 * torch.sigmoid(raw_params[:, 3])
-
-        # Shunt resistance
-        log_Rsh = (
-                np.log(50.0)
-                + (np.log(5000.0) - np.log(50.0))
-                * torch.sigmoid(raw_params[:, 4])
-        )
-        Rsh = torch.exp(log_Rsh)
+        Iph = diode_params[:, 0]
+        Io = diode_params[:, 1]
+        n = diode_params[:, 2]
+        Rs = diode_params[:, 3]
+        Rsh = diode_params[:, 4]
 
         batch_size = jv.shape[0]
 
@@ -220,7 +193,11 @@ class PhysicsInformedJVModel(nn.Module):
             -1,
         )
 
-        I_pred = self.solver(
+        # -------------------------
+        # Physics prediction
+        # -------------------------
+
+        I_phys = self.solver(
             V,
             Iph.unsqueeze(1),
             Io.unsqueeze(1),
@@ -229,13 +206,20 @@ class PhysicsInformedJVModel(nn.Module):
             Rsh.unsqueeze(1),
         )
 
+        # -------------------------
+        # Neural residual
+        # -------------------------
 
-        params = {
-            "Iph": Iph,
-            "Io": Io,
-            "n": n,
-            "Rs": Rs,
-            "Rsh": Rsh,
-        }
+        z_cond = torch.cat(
+            [z, weather],
+            dim=-1
+        )
 
-        return I_pred, z, params
+        delta_I = self.residual_decoder(
+            z_cond
+        )
+
+        I_pred = I_phys + delta_I
+
+
+        return I_pred, I_phys, delta_I, z
