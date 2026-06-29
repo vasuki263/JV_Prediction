@@ -31,6 +31,8 @@ def set_seed(seed=42):
     # Ensures deterministic behavior
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+set_seed(42)
 # ---------------------------------------------------------
 # Training function
 # ---------------------------------------------------------
@@ -55,7 +57,7 @@ def train(
     reset_dir(plot_dir)
     reset_dir(metric_dir)
 
-    set_seed(42)
+    # set_seed(42)
     # -----------------------------------------------------
     # Dataset unpacking
     # -----------------------------------------------------
@@ -64,13 +66,18 @@ def train(
     # -----------------------------------------------------
     # Model setup
     # -----------------------------------------------------
-    model = JV_LSTM(input_size=10)
+    # model = JV_LSTM(input_size=10)
+    model = JV_LSTM(
+        input_size=3,
+        hidden=64,
+        layers=2
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
     train_losses = []
     val_losses = []
-
+    best_val = np.inf
     # -----------------------------------------------------
     # Training loop
     # -----------------------------------------------------
@@ -101,6 +108,16 @@ def train(
 
         val_loss = float(np.mean(val_batch_losses))
         val_losses.append(val_loss)
+        if val_loss < best_val:
+            best_val = val_loss
+
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "scalers": scalers
+                },
+                model_path
+            )
 
         print(
             f"Epoch {epoch+1}/{epochs} | "
@@ -112,7 +129,7 @@ def train(
     # Save model
     # -----------------------------------------------------
     ensure_dir(os.path.dirname(model_path))
-    torch.save({"model": model.state_dict(), "scalers": scalers}, model_path)
+    # torch.save({"model": model.state_dict(), "scalers": scalers}, model_path)
     print(f"[INFO] Model saved to {model_path}")
 
     # -----------------------------------------------------

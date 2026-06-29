@@ -52,21 +52,34 @@ def plot_pred_vs_actual(preds, targets, out_dir: Path):
     plt.close()
 
 
-def plot_reconstructed_curves(V_grid, jv_in, jv_tgt, preds, out_dir: Path):
-    for idx in range(min(10, len(preds))):
-        plt.figure(figsize=(7, 5))
-        plt.plot(V_grid, jv_in[idx], label="Measured JV (raw)", alpha=0.5)
-        plt.plot(V_grid, jv_tgt[idx], label="Reference JV (clean)", linewidth=2)
-        plt.plot(V_grid, preds[idx], "--", label="Autoencoder JV (predicted)", linewidth=2)
+def plot_reconstructed_curves(V_grid, jv_in, jv_tgt, preds, out_dir):
+    """
+    If jv_in or jv_tgt is None, only plot smooth predicted curves.
+    """
+
+    import matplotlib.pyplot as plt
+
+    for idx in range(len(preds)):
+        plt.figure(figsize=(6,4))
+
+        # Plot measured curves only if provided
+        if jv_in is not None:
+            plt.plot(V_grid, jv_in[idx], label="Measured JV (raw)", alpha=0.5)
+
+        if jv_tgt is not None:
+            plt.plot(V_grid, jv_tgt[idx], label="Target JV (raw)", alpha=0.5)
+
+        # Always plot predicted smooth curve
+        plt.plot(V_grid, preds[idx], label="Predicted JV (smooth)", linewidth=2)
 
         plt.xlabel("Voltage (V)")
-        plt.ylabel("Current (A)")
-        plt.title(f"JV Reconstruction #{idx}")
-        plt.grid(True)
+        plt.ylabel("Current density (A/m²)")
         plt.legend()
-        plt.tight_layout()
-        plt.savefig(out_dir / f"reconstructed_{idx}.png", dpi=150)
+        plt.grid(True)
+
+        plt.savefig(out_dir / f"curve_{idx}.png")
         plt.close()
+
 
 
 # ---------------------------------------------------------

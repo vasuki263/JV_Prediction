@@ -53,10 +53,10 @@ def evaluate_autoencoder(model_path, dataset_path, tech, physics_params=None):
     plot_dir    = base_dir / "plots"
     metric_dir  = base_dir / "metrics"
     curve_dir   = base_dir / "curves"
-    latent_dir  = base_dir / "latent"
+    # latent_dir  = base_dir / "latent"
     physics_dir = base_dir / "physics"
 
-    for d in [plot_dir, metric_dir, curve_dir, latent_dir, physics_dir]:
+    for d in [plot_dir, metric_dir, curve_dir, physics_dir]:
         reset_dir(d)
 
     # -----------------------------------------------------
@@ -167,10 +167,8 @@ def evaluate_autoencoder(model_path, dataset_path, tech, physics_params=None):
     )
 
     plot_error_histogram(mse, mae, rmse, r2, plot_dir)
-    # plot_voltage_error(V_grid, preds, jv_tgt, plot_dir)
     plot_pred_vs_actual(preds, jv_tgt, plot_dir)
     plot_reconstructed_curves(V_grid, jv_in, jv_tgt, preds, curve_dir)
-    # plot_physics_error(Voc_t, Voc_p, Jsc_t, Jsc_p, Pmpp_t, Pmpp_p, FF_t, FF_p, physics_dir)
     plot_error_heatmap(preds, jv_tgt, plot_dir)
     plot_param(Voc_true_list, Voc_pred_list, "Voc", physics_dir)
     plot_param(Jsc_true_list, Jsc_pred_list, "Jsc", physics_dir)
@@ -182,13 +180,6 @@ def evaluate_autoencoder(model_path, dataset_path, tech, physics_params=None):
     # -----------------------------------------------------
     if physics_params is not None:
         plot_error_vs_physics_params(mse, physics_params, physics_dir)
-
-    # -----------------------------------------------------
-    # Latent space
-    # -----------------------------------------------------
-    Z = compute_latent_vectors(model, jv_in, weather)
-    # plot_latent_umap(Z, latent_dir)
-    # plot_latent_tsne(Z, latent_dir)
 
     print(f"AE evaluation complete → outputs/{tech}/ae/")
     return preds

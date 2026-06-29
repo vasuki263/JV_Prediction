@@ -6,7 +6,9 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
-from irradiance_analysis import analyze_irradiance
+from param_vs_irradiance_analysis import analyze_irradiance
+# from jv_vs_irr import analyze_irradiance_AE
+# from jv_vs_temp import analyze_temperature_AE
 
 load_dotenv()
 
@@ -17,7 +19,7 @@ from evaluate_lstm import evaluate as eval_lstm
 from build_jv_ae_dataset import build_jv_autoencoder_dataset
 from train_autoencoder import train as train_ae
 from evaluate_autoencoder import evaluate_autoencoder as eval_ae
-from temp_analysis import analyze_temperature
+from param_vs_temp_analysis import analyze_temperature
 import numpy as np
 
 
@@ -153,15 +155,17 @@ def run_pipeline(cfg, args, logger, run_dir):
         step_eval_lstm(cfg, logger)
 
     # AE dataset build (needed for AE train/eval)
-    if args.train_ae or args.eval_ae:
+    if args.train_ae or args.all:
         step_ae_dataset(cfg, logger)
+        step_train_ae(cfg, logger, run_dir)
 
     # AE training
-    if args.train_ae or args.all:
-        step_train_ae(cfg, logger, run_dir)
+    # if args.train_ae or args.all:
+    #     step_train_ae(cfg, logger, run_dir)
 
     # AE evaluation
     if args.eval_ae or args.all:
+        # step_ae_dataset(cfg, logger)
         step_eval_ae(cfg, logger)
 
     # Temperature analysis (NOW USING LSTM)
@@ -180,6 +184,22 @@ def run_pipeline(cfg, args, logger, run_dir):
             tech=cfg["tech"]
         )
         logger.info("Irradiance analysis complete")
+
+    # if args.temp_jv or args.all:
+    #     analyze_temperature_AE(
+    #         dataset_path=cfg['ae_dataset'],
+    #         model_path=cfg['ae_model_path'],
+    #         tech=cfg['tech']
+    #     )
+    #     logger.info("Temperature vs JV curves analysis complete")
+    #
+    # if args.irr_jv or args.all:
+    #     analyze_irradiance_AE(
+    #         dataset_path=cfg['ae_dataset'],
+    #         model_path=cfg['ae_model_path'],
+    #         tech=cfg['tech']
+    #     )
+    #     logger.info("Irradiance vs JV curves analysis complete")
 
 
 # ---------------------------------------------------------
@@ -203,6 +223,12 @@ def main():
 
     # Irradiance analysis
     parser.add_argument("--irr", action="store_true", help="Run irradiance analysis")
+
+    # Temp vs JV curve analysis
+    parser.add_argument("--temp_jv", action="store_true", help="Run temp vs JV curves analysis")
+
+    # Irr vs JV curve analysis
+    parser.add_argument("--irr_jv", action="store_true", help="Run irradiance vs JV curves analysis")
 
     # Run everything
     parser.add_argument("--all", action="store_true", help="Run full pipeline")

@@ -100,6 +100,11 @@ def build_jv_autoencoder_dataset(
     V_grid = np.linspace(V_min, V_max, num_points)
 
     jv_inputs, jv_targets, weather_inputs = [], [], []
+    all_I = np.concatenate([safe_interpolate_to_grid(s["voltage"], s["current"], V_grid)
+                            for s in samples if
+                            safe_interpolate_to_grid(s["voltage"], s["current"], V_grid) is not None])
+
+    global_max = np.max(np.abs(all_I))
 
     print("Building AE dataset...")
     for s in samples:
@@ -115,20 +120,28 @@ def build_jv_autoencoder_dataset(
         I_grid = np.clip(I_grid, -100, 100)
 
         # Normalize
-        max_val = np.max(np.abs(I_grid))
-        if max_val > 0:
-            I_grid = I_grid / max_val
+        # max_val = np.max(np.abs(I_grid))
+        # if max_val > 0:
+        #     I_grid = I_grid / max_val
+        I_grid = I_grid / global_max
 
         I_target = safe_smooth_curve(I_grid)
         if I_target is None:
             continue
 
-        idx = weather_df.index.get_indexer([ts], method="nearest")[0]
-        w = weather_df.iloc[idx][weather_cols].to_numpy(dtype=np.float32)
+        # idx = weather_df.index.get_indexer([ts], method="nearest")[0]
+        # w = weather_df.iloc[idx][weather_cols].to_numpy(dtype=np.float32)
+        #
+        # jv_inputs.append(I_grid.astype(np.float32))
+        # jv_targets.append(I_target.astype(np.float32))
+        # weather_inputs.append(w)
+        # Use module conditions instead of weather-station data
+        temp_mod = np.float32(s["temperature"])
+        irr_mod = np.float32(s["irradiance"])
 
         jv_inputs.append(I_grid.astype(np.float32))
         jv_targets.append(I_target.astype(np.float32))
-        weather_inputs.append(w)
+        weather_inputs.append(np.array([temp_mod, irr_mod], dtype=np.float32))
 
     jv_inputs = np.stack(jv_inputs)
     jv_targets = np.stack(jv_targets)

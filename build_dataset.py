@@ -96,11 +96,11 @@ def build_dataset(tech, clean_weather_path, batch=32):
         "current": MinMaxScaler(),
         "temperature": MinMaxScaler(),
         "irradiance": MinMaxScaler(),
-        "temp_amb": MinMaxScaler(),
-        "humidity": MinMaxScaler(),
-        "cloud": MinMaxScaler(),
-        "precip": MinMaxScaler(),
-        "glob": MinMaxScaler(),
+        # "temp_amb": MinMaxScaler(),
+        # "humidity": MinMaxScaler(),
+        # "cloud": MinMaxScaler(),
+        # "precip": MinMaxScaler(),
+        # "glob": MinMaxScaler(),
         "y": MinMaxScaler(),  # Voc, Jsc, Pmpp
     }
 
@@ -135,11 +135,11 @@ def build_dataset(tech, clean_weather_path, batch=32):
     # scalers["cloud"].fit(weather["cloud_cover"].values.reshape(-1, 1))
     # scalers["precip"].fit(weather["precip_mm"].values.reshape(-1, 1))
     # scalers["glob"].fit(weather["global_radiation"].values.reshape(-1, 1))
-    scalers["glob"] = None
-    scalers["temp_amb"]=None
-    scalers["humidity"]=None
-    scalers["cloud"]=None
-    scalers["precip"]=None
+    # scalers["glob"] = None
+    # scalers["temp_amb"]=None
+    # scalers["humidity"]=None
+    # scalers["cloud"]=None
+    # scalers["precip"]=None
 
     # Fit target scaler
     targets = np.array([[s["Voc"], s["Jsc"], s["Pmpp"]]for s in samples])
@@ -181,6 +181,12 @@ def build_dataset(tech, clean_weather_path, batch=32):
         # Module conditions
         temp_mod = scalers["temperature"].transform([[s["temperature"]]])[0][0]
         irr_mod = scalers["irradiance"].transform([[s["irradiance"]]])[0][0]
+        # Independent sampling
+        # T_rand = np.random.uniform(0, 80)
+        # G_rand = np.random.uniform(50, 1500)
+
+        # temp_mod = scalers["temperature"].transform([[T_rand]])[0][0]
+        # irr_mod = scalers["irradiance"].transform([[G_rand]])[0][0]
 
         # Weather alignment
         ts = pd.Timestamp(s["timestamp"])
@@ -198,16 +204,17 @@ def build_dataset(tech, clean_weather_path, batch=32):
         #     0.0,
         # ])
         # Weather features disabled → fill with zeros
-        w_scaled = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
+        # w_scaled = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
 
         # Build 10-feature block
-        block = np.zeros((len(v), 10))
+        # block = np.zeros((len(v), 10))
+        block = np.zeros((len(v), 5))
         block[:, 0] = v_scaled.flatten()
         block[:, 1] = i_scaled.flatten()
         block[:, 2] = sweep.flatten()
         block[:, 3] = temp_mod
         block[:, 4] = irr_mod
-        block[:, 5:10] = w_scaled
+        # block[:, 5:10] = w_scaled
 
         final_X.append(np.nan_to_num(block, nan=0.0))
 
