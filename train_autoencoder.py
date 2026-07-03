@@ -123,9 +123,17 @@ def train(
                 jv_tgt
             )
 
-            loss_residual = 1e-3 * (
+            loss_residual = 5e-5 * (
                     delta_I ** 2
             ).mean()
+
+            d2 = (
+                    delta_I[:, 2:]
+                    - 2 * delta_I[:, 1:-1]
+                    + delta_I[:, :-2]
+            )
+
+            loss_smooth = 1e-4 * (d2 ** 2).mean()
 
             loss_latent = 1e-5 * (
                     z ** 2
@@ -134,7 +142,7 @@ def train(
             loss = (
                     loss_recon
                     + loss_residual
-                    + loss_latent
+                    + loss_latent + loss_smooth
             )
 
             loss.backward()
