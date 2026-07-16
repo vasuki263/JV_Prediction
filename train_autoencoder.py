@@ -18,6 +18,12 @@ class JVPhysicsDataset(Dataset):
         self.V_grid = data["V_grid"].astype(np.float32)
         self.diode_params = data["diode_params"].astype(np.float32)
 
+        # compute normalization stats for diode params
+        self.diode_mean = self.diode_params.mean(axis=0)
+        self.diode_std = self.diode_params.std(axis=0) + 1e-8
+
+        self.diode_params_norm = (self.diode_params - self.diode_mean) / self.diode_std
+
     def __len__(self):
         return len(self.jv_input)
 
@@ -26,7 +32,7 @@ class JVPhysicsDataset(Dataset):
             self.jv_input[idx],
             self.jv_target[idx],
             self.weather[idx],
-            self.diode_params[idx],
+            self.diode_params_norm[idx],
         )
 
 
@@ -39,6 +45,9 @@ def train(
     epochs=100,
     val_split=0.2,
     latent_dim=32,
+    lambda_params=1e-3,
+    lambda_residual=1e-3,
+    lambda_latent=1e-5,
 ):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -53,21 +62,10 @@ def train(
     n_val = int(val_split * n_total)
     n_train = n_total - n_val
 
-    train_ds, val_ds = random_split(
-        full_ds,
-        [n_train, n_val]
-    )
+    train_ds, val_ds = random_split(full_ds, [n_train, n_val])
 
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True
-    )
-
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=batch_size
-    )
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_ds, batch_size=batch_size)
 
     jv_dim = full_ds.jv_input.shape[1]
     weather_dim = full_ds.weather.shape[1]
@@ -75,118 +73,93 @@ def train(
     model = PhysicsInformedJVModel(
         jv_dim=jv_dim,
         weather_dim=weather_dim,
-        voltage_grid= V_grid,
+        voltage_grid=V_grid,
         latent_dim=latent_dim,
+        diode_mean=full_ds.diode_mean,
+        diode_std=full_ds.diode_std,
     ).to(device)
 
-    opt = torch.optim.Adam(
-        model.parameters(),
-        lr=lr
-    )
-
-    loss_fn = nn.MSELoss()
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn_jv = nn.MSELoss()
+    loss_fn_params = nn.MSELoss()
 
     best_val = float("inf")
 
     for epoch in range(1, epochs + 1):
 
-        # ----------------------------------
+        # -------------------------
         # Training
-        # ----------------------------------
-
+        # -------------------------
         model.train()
+        train_loss = 0.0
 
-        train_loss = 0
-
-        for jv_in, jv_tgt, weather, diode_params in train_loader:
+        for jv_in, jv_tgt, weather, diode_norm in train_loader:
 
             jv_in = jv_in.to(device)
             jv_tgt = jv_tgt.to(device)
             weather = weather.to(device)
-            diode_params = diode_params.to(device)
+            diode_norm = diode_norm.to(device)
 
             opt.zero_grad()
 
-            jv_pred, I_phys, delta_I, z = model(
+            I_pred, I_phys, delta_I, z, diode_pred_norm = model(
                 jv_in,
                 weather,
-                diode_params
-            )
-            if epoch % 10 == 0:
-                print(
-                    f"Residual RMS: "
-                    f"{torch.sqrt((delta_I ** 2).mean()).item():.5f}"
-                )
-
-            loss_recon = loss_fn(
-                jv_pred,
-                jv_tgt
+                diode_params_norm=diode_norm,
             )
 
-            loss_residual = 5e-5 * (
-                    delta_I ** 2
-            ).mean()
-
-            d2 = (
-                    delta_I[:, 2:]
-                    - 2 * delta_I[:, 1:-1]
-                    + delta_I[:, :-2]
-            )
-
-            loss_smooth = 1e-4 * (d2 ** 2).mean()
-
-            loss_latent = 1e-5 * (
-                    z ** 2
-            ).mean()
+            loss_recon = loss_fn_jv(I_pred, jv_tgt)
+            loss_params = loss_fn_params(diode_pred_norm, diode_norm)
+            loss_residual = (delta_I ** 2).mean()
+            loss_latent = (z ** 2).mean()
 
             loss = (
-                    loss_recon
-                    + loss_residual
-                    + loss_latent + loss_smooth
+                loss_recon
+                + lambda_params * loss_params
+                + lambda_residual * loss_residual
+                + lambda_latent * loss_latent
             )
 
             loss.backward()
             opt.step()
 
-            train_loss += (
-                loss.item()
-                * jv_in.size(0)
-            )
+            train_loss += loss.item() * jv_in.size(0)
 
         train_loss /= n_train
 
-        # ----------------------------------
+        # -------------------------
         # Validation
-        # ----------------------------------
-
+        # -------------------------
         model.eval()
-
-        val_loss = 0
+        val_loss = 0.0
 
         with torch.no_grad():
-
-            for jv_in, jv_tgt, weather, diode_params in val_loader:
+            for jv_in, jv_tgt, weather, diode_norm in val_loader:
 
                 jv_in = jv_in.to(device)
                 jv_tgt = jv_tgt.to(device)
                 weather = weather.to(device)
-                diode_params = diode_params.to(device)
+                diode_norm = diode_norm.to(device)
 
-                jv_pred, I_phys, delta_I, z = model(
+                I_pred, I_phys, delta_I, z, diode_pred_norm = model(
                     jv_in,
                     weather,
-                    diode_params
+                    diode_params_norm=diode_norm,
                 )
 
-                loss = loss_fn(
-                    jv_pred,
-                    jv_tgt
+                loss_recon = loss_fn_jv(I_pred, jv_tgt)
+                loss_params = loss_fn_params(diode_pred_norm, diode_norm)
+                loss_residual = (delta_I ** 2).mean()
+                loss_latent = (z ** 2).mean()
+
+                loss = (
+                    loss_recon
+                    + lambda_params * loss_params
+                    + lambda_residual * loss_residual
+                    + lambda_latent * loss_latent
                 )
 
-                val_loss += (
-                    loss.item()
-                    * jv_in.size(0)
-                )
+                val_loss += loss.item() * jv_in.size(0)
 
         val_loss /= n_val
 
@@ -197,7 +170,6 @@ def train(
         )
 
         if val_loss < best_val:
-
             best_val = val_loss
 
             torch.save(
@@ -207,9 +179,22 @@ def train(
                     "weather_dim": weather_dim,
                     "latent_dim": latent_dim,
                     "V_grid": V_grid,
+                    "diode_mean": full_ds.diode_mean,
+                    "diode_std": full_ds.diode_std,
                 },
                 model_path,
             )
 
             print("  -> Saved best model")
 
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset_path", type=str, default="data/jv_autoencoder_dataset_perovskite.npz")
+    parser.add_argument("--model_path", type=str, default="models/jv_autoencoder_perovskite.pth")
+    args = parser.parse_args()
+
+    train(
+        dataset_path=args.dataset_path,
+        model_path=args.model_path,
+    )

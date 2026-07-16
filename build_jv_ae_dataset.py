@@ -178,6 +178,8 @@ def build_jv_autoencoder_dataset(
 
     global_max = np.max(np.abs(all_I))
     diode_params = []
+    diode_params_norm = []
+    diode_params_mean = []
 
     print("Building AE dataset...")
     for s in samples:
@@ -208,10 +210,23 @@ def build_jv_autoencoder_dataset(
             temperature=s["temperature"]
         )
 
+
         if params is None:
             continue
 
+
         diode_params.append(params)
+        # # -----------------------------------------
+        # # NORMALIZE DIODE PARAMETERS
+        # # -----------------------------------------
+        # diode_params_mean = diode_params.mean(axis=0)
+        # diode_params_std = diode_params.std(axis=0)
+        #
+        # # Avoid division by zero
+        # diode_params_std[diode_params_std < 1e-12] = 1e-12
+        #
+        # diode_params_norm = (diode_params - diode_params_mean) / diode_params_std
+
 
         # idx = weather_df.index.get_indexer([ts], method="nearest")[0]
         # w = weather_df.iloc[idx][weather_cols].to_numpy(dtype=np.float32)
@@ -231,6 +246,16 @@ def build_jv_autoencoder_dataset(
     jv_targets = np.stack(jv_targets)
     weather_inputs = np.stack(weather_inputs)
     diode_params = np.stack(diode_params)
+    # diode_params_norm = np.stack(diode_params_norm)
+    # diode_params_mean = np.stack(diode_params_mean)
+    # -----------------------------------------
+    # Compute normalization stats ONCE
+    # -----------------------------------------
+    diode_mean = diode_params.mean(axis=0)
+    diode_std = diode_params.std(axis=0)
+    diode_std[diode_std < 1e-12] = 1e-12
+
+    diode_params_norm = (diode_params - diode_mean) / diode_std
 
     print(diode_params[0])
     print(jv_targets[0].min(), jv_targets[0].max())
@@ -241,6 +266,9 @@ def build_jv_autoencoder_dataset(
         jv_target=jv_targets,
         weather=weather_inputs,
         diode_params=diode_params,
+        diode_params_norm=diode_params_norm,  # normalized
+        # diode_params_mean=diode_params_mean,
+        diode_params_stats={"mean": diode_mean, "std": diode_std},
         V_grid=V_grid.astype(np.float32),
         weather_cols=np.array(weather_cols),
     )

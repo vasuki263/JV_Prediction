@@ -1,162 +1,84 @@
-The temperature coefficient **γ (gamma)** tells you **how sensitive a parameter is to temperature**.
+If your goal is **temperature analysis of PV modules**, not all diode parameters are equally informative. Some parameters are strongly temperature-dependent due to semiconductor physics, while others are more affected by manufacturing, aging, or fitting uncertainty.
 
-In your code:
+## Most important parameters to analyze vs. module temperature
 
-```python
-slope = np.polyfit(temps, values, 1)[0]
+1. **(I_{ph}) (Photocurrent) — Very important**
 
-gamma = slope / np.mean(values) * 100
-```
+   * Closely related to irradiance.
+   * Increases slightly with temperature (typically around +0.03–0.06%/°C for silicon, depending on technology).
+   * If irradiance changes, normalize or analyze irradiance and temperature together.
 
-you're calculating:
+2. **(I_o) (Saturation current) — Most temperature-sensitive**
 
-[
-\gamma = \frac{1}{Y}\frac{dY}{dT}\times100
-]
+   * This is usually the key parameter for temperature studies.
+   * It increases exponentially with temperature.
+   * The increase in (I_o) is the primary reason that (V_{oc}) decreases as temperature rises.
+   * It is much more meaningful to plot **(\log(I_o))** than (I_o), since (I_o) spans many orders of magnitude.
 
-with units:
+3. **(n) (Ideality factor) — Important**
 
-[
-% / ^\circ C
-]
+   * Indicates the dominant recombination mechanism.
+   * Often changes slightly with temperature.
+   * Large variations can indicate changing recombination behavior or degradation.
 
-where (Y) is Voc, Jsc, FF, or Pmpp.
+4. **(R_s) (Series resistance) — Moderately important**
 
----
+   * Can increase with temperature because metal and contact resistivity increase.
+   * Also influenced by aging, solder joints, and interconnections.
 
-### Interpretation
+5. **(R_{sh}) (Shunt resistance) — Less important for temperature**
 
-Suppose your model predicts:
-
-| Temperature (°C) | Voc (V) |
-| ---------------- | ------: |
-| 20               |    10.0 |
-| 40               |     9.8 |
-| 60               |     9.6 |
-| 80               |     9.4 |
-
-The fitted slope is:
-
-[
-\frac{9.4-10.0}{80-20}
-======================
-
--0.01 ;V/^\circ C
-]
-
-Average Voc ≈ 9.7 V
-
-So:
-
-[
-\gamma
-======
-
-\frac{-0.01}{9.7}
-\times100
-=========
-
--0.103%/^\circ C
-]
-
-This means:
-
-> For every 1°C increase in temperature, Voc decreases by approximately 0.103%.
+   * Ideally remains high and nearly constant.
+   * Variations are more commonly associated with defects, moisture ingress, PID, cracks, or leakage paths than temperature.
 
 ---
 
-### Sign of γ
+## Electrical parameters to compare with temperature
 
-#### Negative γ
+Besides diode parameters, the following are often more directly interpretable:
 
-[
-\gamma < 0
-]
+* **(V_{oc})** — Strong negative temperature coefficient (very important)
+* **(P_{max})** — Decreases with temperature (very important)
+* **Fill Factor (FF)** — Usually decreases with temperature
+* **(V_{mpp})** — Decreases with temperature
+* **(I_{sc})** — Slightly increases with temperature
 
-Parameter decreases as temperature increases.
-
-Example:
-
-* Voc
-* FF
-* Pmpp
-
-usually have negative temperature coefficients.
+These are the quantities manufacturers specify with temperature coefficients and are easier to validate against datasheets.
 
 ---
 
-#### Positive γ
+## Recommended analysis
 
-[
-\gamma > 0
-]
+If your objective is to understand how module temperature affects performance, I would prioritize plotting:
 
-Parameter increases as temperature increases.
-
-Example:
-
-* Jsc often has a small positive coefficient in many PV technologies.
-
----
-
-### Why use γ instead of slope?
-
-Suppose:
-
-| Parameter |      Slope |
-| --------- | ---------: |
-| Voc       | -0.05 V/°C |
-| Pmpp      | -0.20 W/°C |
-
-Which is more temperature sensitive?
-
-You can't tell directly because the units differ.
-
-Gamma normalizes the slope:
-
-[
-\gamma = \frac{\text{slope}}{\text{parameter}}
-]
-
-making different parameters comparable.
-
-Example:
-
-| Parameter |          γ |
-| --------- | ---------: |
-| Voc       | -0.25 %/°C |
-| Pmpp      | -0.45 %/°C |
-
-Now you can say:
-
-> Pmpp is more temperature-sensitive than Voc.
+1. Module temperature vs. **(\log(I_o))**
+2. Module temperature vs. **(V_{oc})**
+3. Module temperature vs. **(P_{max})**
+4. Module temperature vs. **(R_s)**
+5. Module temperature vs. **Fill Factor**
+6. Module temperature vs. **(I_{ph})** (while accounting for irradiance)
 
 ---
 
-### In your temperature sweep
+## Since you have weather data
 
-If you obtain:
+Because your dataset already includes **module temperature and irradiance**, a better analysis is **2D rather than temperature alone**. For example:
 
-| Parameter | γ (%/°C) |
-| --------- | -------: |
-| Voc       |    -0.30 |
-| Jsc       |    +0.05 |
-| FF        |    -0.15 |
-| Pmpp      |    -0.40 |
+* (\log(I_o)) vs. temperature (colored by irradiance)
+* (R_s) vs. temperature (colored by irradiance)
+* (P_{max}) vs. temperature (colored by irradiance)
 
-the interpretation would be:
+This helps separate temperature effects from irradiance effects, since (I_{ph}), (I_{sc}), and power are strongly influenced by both.
 
-* **Voc:** decreases by 0.30% for every °C increase
-* **Jsc:** increases slightly with temperature
-* **FF:** decreases moderately
-* **Pmpp:** loses 0.40% of power per °C
+### My recommendation
 
-This is exactly the type of result commonly reported in PV performance studies.
+If you are writing a thesis, I'd focus on these six relationships:
 
----
+* Module temperature → **(V_{oc})**
+* Module temperature → **(\log(I_o))** (most physically meaningful diode parameter)
+* Module temperature → **(R_s)**
+* Module temperature → **Fill Factor**
+* Module temperature → **Maximum power ((P_{max}))**
+* Module temperature → **(I_{ph})** (with irradiance shown or normalized)
 
-### For your thesis
-
-A concise interpretation is:
-
-> The temperature coefficient γ quantifies the relative change of a photovoltaic parameter per degree Celsius. Negative values indicate degradation with increasing temperature, while positive values indicate improvement. The magnitude of γ reflects the parameter's sensitivity to temperature and enables comparison across different performance metrics.
+These provide a good balance between physically meaningful diode-model parameters and standard PV performance metrics.

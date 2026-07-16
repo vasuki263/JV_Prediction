@@ -12,8 +12,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MAX_IRRADIANCE_VARIATION = 45
-MAX_IRRADIANCE_DIFFERENCE_FWD_BWD = 30
+MAX_IRRADIANCE_VARIATION = 100 #45
+MAX_IRRADIANCE_DIFFERENCE_FWD_BWD = 80 #30
 TRIM_START = 5
 TRIM_END = 5
 
@@ -53,23 +53,55 @@ def parse_timestamp_from_filename(name):
 
 
 # ---------------------------------------------------------
-# 2. Compute JV parameters
+# 2. Robust JV parameter extraction (aligned with plotting code)
 # ---------------------------------------------------------
 def compute_params(voltage, current):
-    idx_voc = np.argmin(np.abs(current))
-    Voc = float(voltage[idx_voc])
+    voltage = np.asarray(voltage, dtype=float)
+    current = np.asarray(current, dtype=float)
 
-    idx_isc = np.argmin(np.abs(voltage))
-    Isc = float(current[idx_isc])
+    mask = np.isfinite(voltage) & np.isfinite(current)
+    voltage = voltage[mask]
+    current = current[mask]
 
-    power = voltage * current
-    idx_mpp = np.argmax(power)
+    if len(voltage) < 5:
+        return None
 
-    Vmpp = float(voltage[idx_mpp])
-    Impp = float(current[idx_mpp])
-    Pmpp = float(power[idx_mpp])
+    # Sort by voltage for consistency
+    idx = np.argsort(voltage)
+    V = voltage[idx]
+    I = current[idx]
 
-    FF = Pmpp / (Voc * Isc) if Voc * Isc != 0 else 0
+    # Voc: if sign change exists, use interpolation; otherwise nearest to zero current
+    sign_change = np.where(np.diff(np.sign(I)) != 0)[0]
+    if len(sign_change) > 0:
+        k = sign_change[0]
+        V1, V2 = V[k], V[k + 1]
+        I1, I2 = I[k], I[k + 1]
+        Voc = V1 - I1 * (V2 - V1) / (I2 - I1 + 1e-12)
+    else:
+        # idx_i0 = np.argmin(np.abs(I))
+        # Voc = float(V[idx_i0])
+        idx_i0 = np.argmin(np.abs(I))
+        Voc = float(V[idx_i0])
+
+    # Isc: current at voltage closest to 0
+    idx_v0 = np.argmin(np.abs(V))
+    Isc = float(I[idx_v0])
+
+    # Power and MPP
+    P = V * I
+    idx_mpp = np.argmax(P)
+    Vmpp = float(V[idx_mpp])
+    Impp = float(I[idx_mpp])
+    Pmpp = float(P[idx_mpp])
+
+    # FF: guard against sign issues and division by zero
+    denom = Voc * Isc
+    if abs(denom) < 1e-12:
+        FF = 0.0
+    else:
+        FF = Pmpp / denom
+
     return Voc, Isc, Vmpp, Impp, Pmpp, FF
 
 
@@ -94,12 +126,15 @@ def extract_clean_jv_from_bytes(data, key):
     irr_fwd, irr_bwd = irr[:sep], irr[sep:]
 
     # Irradiance QC
-    if (
-        np.max(irr_fwd) - np.min(irr_fwd) > MAX_IRRADIANCE_VARIATION
-        or np.max(irr_bwd) - np.min(irr_bwd) > MAX_IRRADIANCE_VARIATION
-        or abs(np.mean(irr_fwd) - np.mean(irr_bwd)) > MAX_IRRADIANCE_DIFFERENCE_FWD_BWD
-    ):
+    # if (
+    #     np.max(irr_fwd) - np.min(irr_fwd) > MAX_IRRADIANCE_VARIATION
+    #     or np.max(irr_bwd) - np.min(irr_bwd) > MAX_IRRADIANCE_VARIATION
+    #     or abs(np.mean(irr_fwd) - np.mean(irr_bwd)) > MAX_IRRADIANCE_DIFFERENCE_FWD_BWD
+    # ):
+    if np.max(irr) < 50:  # extremely low irradiance → invalid JV
         return []
+
+        # return []
 
     # Trim sweeps
     v_fwd = voltage[:sep][TRIM_START:-TRIM_END]
@@ -107,14 +142,20 @@ def extract_clean_jv_from_bytes(data, key):
     v_bwd = voltage[sep:][TRIM_START:-TRIM_END]
     i_bwd = current[sep:][TRIM_START:-TRIM_END]
 
-    # Compute parameters
-    Voc_f, Isc_f, Vmpp_f, Impp_f, Pmpp_f, FF_f = compute_params(v_fwd, i_fwd)
-    Voc_b, Isc_b, Vmpp_b, Impp_b, Pmpp_b, FF_b = compute_params(v_bwd, i_bwd)
+    # Compute parameters (same logic as plotting)
+    params_fwd = compute_params(v_fwd, i_fwd)
+    params_bwd = compute_params(v_bwd, i_bwd)
+
+    if params_fwd is None or params_bwd is None:
+        return []
+
+    Voc_f, Isc_f, Vmpp_f, Impp_f, Pmpp_f, FF_f = params_fwd
+    Voc_b, Isc_b, Vmpp_b, Impp_b, Pmpp_b, FF_b = params_bwd
 
     irr_avg = float(np.mean(irr))
 
     def valid(Voc, Isc, Pmpp):
-        return Voc > 0 and Isc > 0 and Pmpp > 0
+        return np.isfinite(Voc) and np.isfinite(Isc) and np.isfinite(Pmpp) and Pmpp > 0
 
     samples = []
 
@@ -132,6 +173,8 @@ def extract_clean_jv_from_bytes(data, key):
             "timestamp": timestamp,
             "Voc": Voc_f,
             "Jsc": Isc_f,
+            "Vmpp": Vmpp_f,
+            "Jmpp": Impp_f,
             "Pmpp": Pmpp_f,
             "FF": FF_f,
         })
@@ -152,6 +195,8 @@ def extract_clean_jv_from_bytes(data, key):
             "timestamp": timestamp,
             "Voc": Voc_b,
             "Jsc": Isc_b,
+            "Vmpp": Vmpp_b,
+            "Jmpp": Impp_b,
             "Pmpp": Pmpp_b,
             "FF": FF_b,
         })
