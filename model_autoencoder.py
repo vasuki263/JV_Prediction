@@ -71,7 +71,7 @@ class SingleDiodeSolver(nn.Module):
         - (V + I*Rs)/Rsh
     """
 
-    def __init__(self, Ns=72, Vt=0.02585, n_iter=20):
+    def __init__(self, Ns=1, Vt=0.02585, n_iter=40):
         super().__init__()
         self.Ns = Ns
         self.Vt = Vt
@@ -79,17 +79,11 @@ class SingleDiodeSolver(nn.Module):
 
     def forward(self, voltage, Iph, Io, n, Rs, Rsh):
 
-        # initial guess
         I = Iph.clone()
 
         for _ in range(self.n_iter):
 
-            # exp_arg = (voltage + I * Rs) / (n * self.Vt)
-            exp_arg = (
-                              voltage + I * Rs
-                      ) / (
-                              n * self.Ns * self.Vt
-                      )
+            exp_arg = (voltage + I * Rs) / (n * self.Ns * self.Vt)
             exp_arg = torch.clamp(exp_arg, max=80)
 
             exp_term = torch.exp(exp_arg)
@@ -113,23 +107,31 @@ class SingleDiodeSolver(nn.Module):
 
 
 class PhysicsInformedJVModel(nn.Module):
+    """
+    Physics-informed JV model:
+    - Encoder: JV + weather → latent z
+    - Diode head: (z + weather) → normalized diode params
+    - Solver: voltage_grid + *denormalized* diode params → I_phys
+    - Residual decoder: (z + weather) → delta_I
+    - Output: I_pred = I_phys + delta_I
+    """
 
     def __init__(
-            self,
-            jv_dim,
-            weather_dim,
-            voltage_grid,
-            latent_dim=32,
-            hidden_dims=(256, 128),
+        self,
+        jv_dim,
+        weather_dim,
+        voltage_grid,
+        latent_dim=32,
+        hidden_dims=(256, 128),
+        diode_mean=None,
+        diode_std=None,
     ):
         super().__init__()
 
-        # --------------------------------------------------
+        # -----------------------------
         # Encoder
-        # --------------------------------------------------
-
+        # -----------------------------
         input_dim = jv_dim + weather_dim
-
         encoder_layers = []
         prev_dim = input_dim
 
@@ -139,8 +141,11 @@ class PhysicsInformedJVModel(nn.Module):
             prev_dim = h
 
         encoder_layers.append(nn.Linear(prev_dim, latent_dim))
-
         self.encoder = nn.Sequential(*encoder_layers)
+
+        # -----------------------------
+        # Residual decoder (JV residual)
+        # -----------------------------
         self.residual_decoder = nn.Sequential(
             nn.Linear(latent_dim + weather_dim, 128),
             nn.ReLU(),
@@ -149,54 +154,97 @@ class PhysicsInformedJVModel(nn.Module):
             nn.Linear(256, jv_dim),
         )
 
-
-
-        # --------------------------------------------------
-        # Voltage grid
-        # --------------------------------------------------
-
-        self.register_buffer(
-            "voltage_grid",
-            torch.tensor(
-                voltage_grid,
-                dtype=torch.float32
-            )
+        # -----------------------------
+        # Diode parameter head
+        # -----------------------------
+        self.diode_head = nn.Sequential(
+            nn.Linear(latent_dim + weather_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 5),  # Iph, Io, n, Rs, Rsh (normalized)
         )
 
-        self.solver = SingleDiodeSolver(
-    Ns=1
-)
+        # -----------------------------
+        # Voltage grid
+        # -----------------------------
+        self.register_buffer(
+            "voltage_grid",
+            torch.tensor(voltage_grid, dtype=torch.float32)
+        )
+
+        # -----------------------------
+        # Normalization stats
+        # -----------------------------
+        if diode_mean is None:
+            diode_mean = torch.zeros(5, dtype=torch.float32)
+        if diode_std is None:
+            diode_std = torch.ones(5, dtype=torch.float32)
+
+        self.register_buffer("diode_mean", torch.tensor(diode_mean, dtype=torch.float32))
+        self.register_buffer("diode_std", torch.tensor(diode_std, dtype=torch.float32))
+
+        # -----------------------------
+        # Solver
+        # -----------------------------
+        self.solver = SingleDiodeSolver(Ns=1)
 
     def forward(
             self,
             jv,
             weather,
-            diode_params,
+            diode_params_norm=None,
     ):
-        x = torch.cat(
-            [jv, weather],
-            dim=-1
-        )
-
+        # -----------------------------
+        # Encode JV + weather
+        # -----------------------------
+        x = torch.cat([jv, weather], dim=-1)
         z = self.encoder(x)
 
-        Iph = diode_params[:, 0]
-        Io = diode_params[:, 1]
-        n = diode_params[:, 2]
-        Rs = diode_params[:, 3]
-        Rsh = diode_params[:, 4]
+        # -----------------------------
+        # Diode parameter prediction (normalized)
+        # -----------------------------
+        z_cond = torch.cat([z, weather], dim=-1)
+        diode_pred_norm = self.diode_head(z_cond)
+        # print("diode_norm=", diode_pred_norm)
+
+        # Denormalize
+        diode_raw = diode_pred_norm * self.diode_std + self.diode_mean
+        # print("diode_raw=", diode_raw)
+
+        # -----------------------------
+        # Bounded physical parameters
+        # -----------------------------
+        # Iph: allow positive up to some reasonable max (e.g. 2 A)
+        # Iph = 2.0 * torch.sigmoid(diode_raw[:, 0])
+        Iph = diode_raw[:, 0]
+        # # Iph = torch.relu(diode_raw[:, 0])
+        #
+        # # Io: tiny positive range (log-scale)
+        # # Io = torch.exp(torch.clamp(diode_raw[:, 1], min=-30.0, max=-5.0))
+        logIo = diode_raw[:, 1]
+        Io = torch.exp(logIo)
+        # Iph = 3.0 * torch.sigmoid(diode_raw[:, 0])
+        #
+        # logIo = -30 + 25 * torch.sigmoid(diode_raw[:, 1])
+        # Io = torch.exp(logIo)
+
+        # n: ideality factor in [0.8, 3.0]
+        n = 0.8 + 2.2 * torch.sigmoid(diode_raw[:, 2])
+
+        # Rs: series resistance in [0, 20]
+        Rs = 20.0 * torch.sigmoid(diode_raw[:, 3])
+
+        # Rsh: shunt resistance in [10, 1e5]
+        # Rsh = 10.0 + (1e5 - 10.0) * torch.sigmoid(diode_raw[:, 4])
+        Rsh = 100.0 + (1e5 - 100.0) * torch.sigmoid(diode_raw[:, 4])
 
         batch_size = jv.shape[0]
+        V = self.voltage_grid.unsqueeze(0).expand(batch_size, -1)
 
-        V = self.voltage_grid.unsqueeze(0).expand(
-            batch_size,
-            -1,
-        )
-
-        # -------------------------
+        # -----------------------------
         # Physics prediction
-        # -------------------------
-
+        # -----------------------------
         I_phys = self.solver(
             V,
             Iph.unsqueeze(1),
@@ -206,20 +254,11 @@ class PhysicsInformedJVModel(nn.Module):
             Rsh.unsqueeze(1),
         )
 
-        # -------------------------
+        # -----------------------------
         # Neural residual
-        # -------------------------
-
-        z_cond = torch.cat(
-            [z, weather],
-            dim=-1
-        )
-
-        delta_I = self.residual_decoder(
-            z_cond
-        )
+        # -----------------------------
+        delta_I = self.residual_decoder(z_cond)
 
         I_pred = I_phys + delta_I
 
-
-        return I_pred, I_phys, delta_I, z
+        return I_pred, I_phys, delta_I, z, diode_pred_norm
