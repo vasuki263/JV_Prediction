@@ -195,9 +195,9 @@ def build_jv_autoencoder_dataset(
         I_grid = np.clip(I_grid, -100, 100)
 
         # Normalize
-        # max_val = np.max(np.abs(I_grid))
-        # if max_val > 0:
-        #     I_grid = I_grid / max_val
+        max_val = np.max(np.abs(I_grid))
+        if max_val > 0:
+            I_grid = I_grid / max_val
 
         # I_grid = I_grid / global_max
 

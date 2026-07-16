@@ -6,6 +6,7 @@ from scipy.signal import savgol_filter
 from scipy.interpolate import interp1d
 
 from model_autoencoder import PhysicsInformedJVModel
+from scipy.signal import savgol_filter
 
 
 plt.rcParams.update({
@@ -75,14 +76,14 @@ def plot_single_jv(V_grid, measured, target, predicted, sample_idx, rmse, save_p
     ax.grid(True, linestyle="--", alpha=0.25)
     ax.legend()
 
-    ax.text(
-        0.02,
-        0.97,
-        f"RMSE = {rmse:.6f}",
-        transform=ax.transAxes,
-        verticalalignment="top",
-        bbox=dict(facecolor="white", alpha=0.9),
-    )
+    # ax.text(
+    #     0.02,
+    #     0.97,
+    #     f"RMSE = {rmse:.6f}",
+    #     transform=ax.transAxes,
+    #     verticalalignment="top",
+    #     bbox=dict(facecolor="white", alpha=0.9),
+    # )
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=600, bbox_inches="tight")
@@ -166,13 +167,30 @@ def plot_multiple_predictions(
         rmse = np.sqrt(np.mean((jv_pred - jv_target[idx]) ** 2))
 
         save_path = save_dir / f"sample_{idx:05d}.png"
+        predicted_smooth = savgol_filter(
+            jv_pred,
+            window_length=25,
+            polyorder=3
+        )
+
+        target_smooth = savgol_filter(
+            jv_target[idx],
+            window_length=25,
+            polyorder=3
+        )
+
+        measured_smooth = savgol_filter(
+            jv_input[idx],
+            window_length=25,
+            polyorder=3
+        )
 
         # Plot JV curves
         plot_single_jv(
             V_grid=V_grid,
-            measured=jv_input[idx],
-            target=jv_target[idx],
-            predicted=jv_pred,
+            measured=measured_smooth,
+            target=target_smooth,
+            predicted=predicted_smooth,
             sample_idx=idx,
             rmse=rmse,
             save_path=save_path,
