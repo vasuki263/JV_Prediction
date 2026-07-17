@@ -71,7 +71,7 @@ class SingleDiodeSolver(nn.Module):
         - (V + I*Rs)/Rsh
     """
 
-    def __init__(self, Ns=1, Vt=0.02585, n_iter=40):
+    def __init__(self, Ns=1, Vt=0.02585, n_iter=20):
         super().__init__()
         self.Ns = Ns
         self.Vt = Vt

@@ -14,6 +14,66 @@ def reset_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
+# def extract_jv_physics(V, I):
+#
+#     V = np.asarray(V, float)
+#     I = np.asarray(I, float)
+#
+#     mask = np.isfinite(V) & np.isfinite(I)
+#     V = V[mask]
+#     I = I[mask]
+#
+#     if len(V) < 5:
+#         return np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
+#
+#     idx = np.argsort(V)
+#     V = V[idx]
+#     I = I[idx]
+#
+#     # ------------------------
+#     # Jsc
+#     # ------------------------
+#     Jsc = np.interp(0.0, V, I)
+#
+#     # ------------------------
+#     # Voc
+#     # ------------------------
+#     sign_change = np.where(np.diff(np.sign(I)) != 0)[0]
+#
+#     if len(sign_change):
+#
+#         k = sign_change[0]
+#
+#         Voc = np.interp(
+#             0.0,
+#             [I[k], I[k + 1]],
+#             [V[k], V[k + 1]]
+#         )
+#
+#     else:
+#         # nearest point to zero current
+#         idx0 = np.argmin(np.abs(I))
+#
+#         # tolerance depends on your current scale
+#         if abs(I[idx0]) < 0.02:
+#             Voc = V[idx0]
+#         else:
+#             Voc = np.nan
+#
+#     # ------------------------
+#     # MPP
+#     # ------------------------
+#     P = V * I
+#     k = np.argmax(P)
+#
+#     Vmpp = V[k]
+#     Jmpp = I[k]
+#     Pmpp = P[k]
+#
+#     FF = Pmpp / (Voc * Jsc + 1e-12)
+#
+#     return Voc, Jsc, Vmpp, Jmpp, Pmpp, FF
+
 def extract_jv_physics(V, I):
 
     V = np.asarray(V, float)
@@ -26,6 +86,7 @@ def extract_jv_physics(V, I):
     if len(V) < 5:
         return np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
 
+    # Sort by voltage
     idx = np.argsort(V)
     V = V[idx]
     I = I[idx]
@@ -36,29 +97,30 @@ def extract_jv_physics(V, I):
     Jsc = np.interp(0.0, V, I)
 
     # ------------------------
-    # Voc
+    # Robust Voc extraction
     # ------------------------
-    sign_change = np.where(np.diff(np.sign(I)) != 0)[0]
+    def extract_voc(V, I):
 
-    if len(sign_change):
+        # If all currents are negative → Voc near highest V
+        if np.all(I < 0):
+            k = np.argmin(np.abs(I))
+            return V[k]
 
-        k = sign_change[0]
+        # If all currents are positive → Voc near lowest V
+        if np.all(I > 0):
+            k = np.argmin(np.abs(I))
+            return V[k]
 
-        Voc = np.interp(
-            0.0,
-            [I[k], I[k + 1]],
-            [V[k], V[k + 1]]
-        )
+        # Look for zero crossing between points
+        for k in range(len(I) - 1):
+            if (I[k] <= 0 and I[k+1] >= 0) or (I[k] >= 0 and I[k+1] <= 0):
+                return np.interp(0.0, [I[k], I[k+1]], [V[k], V[k+1]])
 
-    else:
-        # nearest point to zero current
-        idx0 = np.argmin(np.abs(I))
+        # Fallback: nearest-to-zero current
+        k = np.argmin(np.abs(I))
+        return V[k]
 
-        # tolerance depends on your current scale
-        if abs(I[idx0]) < 0.02:
-            Voc = V[idx0]
-        else:
-            Voc = np.nan
+    Voc = extract_voc(V, I)
 
     # ------------------------
     # MPP
@@ -73,7 +135,6 @@ def extract_jv_physics(V, I):
     FF = Pmpp / (Voc * Jsc + 1e-12)
 
     return Voc, Jsc, Vmpp, Jmpp, Pmpp, FF
-
 
 def unnormalize_params(params_norm, stats):
     """Undo normalization: x = x_norm * std + mean"""
@@ -253,11 +314,87 @@ def evaluate_diode_model(
 
     return preds, df
 
+def plot_electrical_params(df, params_true, params_pred, out_dir):
+    """
+    Generate comparison plots for:
+    Voc, Jsc, Vmpp, Impp, FF, Rs, Rsh
+    """
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    # df contains JV physics metrics
+    # params_true/pred contain diode parameters [Iph, Io, n, Rs, Rsh]
+
+    metrics = {
+        "Voc": ("Voc_true", "Voc_pred"),
+        "Jsc": ("Jsc_true", "Jsc_pred"),
+        "Vmpp": ("Vmpp_true", "Vmpp_pred"),
+        "Impp": ("Jmpp_true", "Jmpp_pred"),
+        "FF": ("FF_true", "FF_pred"),
+        "Rs": (params_true[:, 3], params_pred[:, 3]),
+        "Rsh": (params_true[:, 4], params_pred[:, 4]),
+    }
+
+    for name, cols in metrics.items():
+
+        # Handle dataframe vs array inputs
+        if isinstance(cols[0], str):
+            true = df[cols[0]].values
+            pred = df[cols[1]].values
+        else:
+            true = cols[0]
+            pred = cols[1]
+
+        err = pred - true
+
+        # -----------------------------
+        # Scatter: True vs Predicted
+        # -----------------------------
+        plt.figure(figsize=(6, 5))
+        plt.scatter(true, pred, alpha=0.6, edgecolor="k")
+        lims = [min(true.min(), pred.min()), max(true.max(), pred.max())]
+        plt.plot(lims, lims, "r--", label="Ideal")
+        plt.xlabel(f"True {name}")
+        plt.ylabel(f"Predicted {name}")
+        plt.title(f"{name}: True vs Predicted")
+        plt.grid(alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_dir, f"{name}_scatter.png"), dpi=200)
+        plt.close()
+
+        # -----------------------------
+        # Error histogram
+        # -----------------------------
+        plt.figure(figsize=(6, 5))
+        plt.hist(err, bins=40, alpha=0.7, color="steelblue")
+        plt.axvline(0, color="r", linestyle="--")
+        plt.xlabel(f"Prediction Error ({name}_pred - {name}_true)")
+        plt.ylabel("Count")
+        plt.title(f"{name} Error Distribution")
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_dir, f"{name}_error_hist.png"), dpi=200)
+        plt.close()
+
+    print(f"Electrical parameter plots saved → {out_dir}")
+
 
 if __name__ == "__main__":
     preds, physics_results = evaluate_diode_model(
-        model_path="models/jv_autoencoder_perovskite.pth",
-        dataset_path="data/jv_autoencoder_dataset_perovskite.npz",
-        tech="Perovskite_5&6",
+        model_path="models/jv_autoencoder_silicon.pth",
+        dataset_path="data/jv_autoencoder_dataset_silicon.npz",
+        tech="SunPower_5-1",
         num_curves=10,
     )
+    curves = np.load("outputs/SunPower_5-1/ae/physics/metrics/curves.npz")
+    params_true = curves["diode_true"]
+    params_pred = curves["diode_pred"]
+
+    plot_electrical_params(
+        df=physics_results,
+        params_true=params_true,
+        params_pred=params_pred,
+        out_dir="outputs/SunPower_5-1/ae/physics/electrical_param_plots"
+    )
+

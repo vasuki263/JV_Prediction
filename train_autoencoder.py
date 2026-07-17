@@ -42,7 +42,7 @@ def train(
     model_path,
     out_dir="models",
     batch_size=64,
-    lr=1e-3,
+    lr=1e-4,
     epochs=100,
     val_split=0.2,
     latent_dim=32,
