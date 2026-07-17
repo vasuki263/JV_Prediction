@@ -223,7 +223,7 @@ class PhysicsInformedJVModel(nn.Module):
         # # Io: tiny positive range (log-scale)
         # # Io = torch.exp(torch.clamp(diode_raw[:, 1], min=-30.0, max=-5.0))
         logIo = diode_raw[:, 1]
-        Io = torch.exp(logIo)
+        Io = diode_raw[:, 1]#torch.exp(logIo)
         # Iph = 3.0 * torch.sigmoid(diode_raw[:, 0])
         #
         # logIo = -30 + 25 * torch.sigmoid(diode_raw[:, 1])
@@ -237,7 +237,8 @@ class PhysicsInformedJVModel(nn.Module):
 
         # Rsh: shunt resistance in [10, 1e5]
         # Rsh = 10.0 + (1e5 - 10.0) * torch.sigmoid(diode_raw[:, 4])
-        Rsh = 100.0 + (1e5 - 100.0) * torch.sigmoid(diode_raw[:, 4])
+        # Rsh = 100.0 + (1e5 - 100.0) * torch.sigmoid(diode_raw[:, 4])
+        Rsh = diode_raw[:, 4]
 
         batch_size = jv.shape[0]
         V = self.voltage_grid.unsqueeze(0).expand(batch_size, -1)

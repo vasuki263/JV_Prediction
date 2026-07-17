@@ -199,12 +199,12 @@ def evaluate_diode_model(
             "Pmpp_pred": Pmpp_p,
             "FF_true": FF_t,
             "FF_pred": FF_p,
-            "Iph_true": Iph_t,
-            "Iph_pred": Iph_p,
-            "Io_true": Io_t,
-            "Io_pred": Io_p,
-            "n_true": n_t,
-            "n_pred": n_p,
+            # "Iph_true": Iph_t,
+            # "Iph_pred": Iph_p,
+            # "Io_true": Io_t,
+            # "Io_pred": Io_p,
+            # "n_true": n_t,
+            # "n_pred": n_p,
             "Rs_true": Rs_t,
             "Rs_pred": Rs_p,
             "Rsh_true": Rsh_t,
@@ -256,8 +256,8 @@ def evaluate_diode_model(
 
 if __name__ == "__main__":
     preds, physics_results = evaluate_diode_model(
-        model_path="models/jv_autoencoder_silicon.pth",
-        dataset_path="data/jv_autoencoder_dataset_silicon.npz",
-        tech="SunPower_5-1",
+        model_path="models/jv_autoencoder_perovskite.pth",
+        dataset_path="data/jv_autoencoder_dataset_perovskite.npz",
+        tech="Perovskite_5&6",
         num_curves=10,
     )

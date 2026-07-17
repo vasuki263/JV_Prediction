@@ -17,6 +17,7 @@ class JVPhysicsDataset(Dataset):
         self.weather = data["weather"].astype(np.float32)
         self.V_grid = data["V_grid"].astype(np.float32)
         self.diode_params = data["diode_params"].astype(np.float32)
+        # self.diode_params[:, 1] = np.log(self.diode_params[:, 1])
 
         # compute normalization stats for diode params
         self.diode_mean = self.diode_params.mean(axis=0)
@@ -112,12 +113,14 @@ def train(
             loss_params = loss_fn_params(diode_pred_norm, diode_norm)
             loss_residual = (delta_I ** 2).mean()
             loss_latent = (z ** 2).mean()
+            loss_phys = loss_fn_jv(I_phys, jv_tgt)
 
             loss = (
                 loss_recon
                 + lambda_params * loss_params
                 + lambda_residual * loss_residual
                 + lambda_latent * loss_latent
+                + 0.2 * loss_phys
             )
 
             loss.backward()
@@ -151,12 +154,14 @@ def train(
                 loss_params = loss_fn_params(diode_pred_norm, diode_norm)
                 loss_residual = (delta_I ** 2).mean()
                 loss_latent = (z ** 2).mean()
+                loss_phys = loss_fn_jv(I_phys, jv_tgt)
 
                 loss = (
                     loss_recon
                     + lambda_params * loss_params
                     + lambda_residual * loss_residual
                     + lambda_latent * loss_latent
+                    + 0.02 * loss_phys
                 )
 
                 val_loss += loss.item() * jv_in.size(0)
