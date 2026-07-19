@@ -121,7 +121,7 @@ class PhysicsInformedJVModel(nn.Module):
         jv_dim,
         weather_dim,
         voltage_grid,
-        latent_dim=32,
+        latent_dim=64,
         hidden_dims=(256, 128),
         diode_mean=None,
         diode_std=None,
@@ -157,12 +157,29 @@ class PhysicsInformedJVModel(nn.Module):
         # -----------------------------
         # Diode parameter head
         # -----------------------------
+        # self.diode_head = nn.Sequential(
+        #     nn.Linear(latent_dim + weather_dim, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, 64),
+        #     nn.ReLU(),
+        #     nn.Linear(64, 5),  # Iph, Io, n, Rs, Rsh (normalized)
+        # )
         self.diode_head = nn.Sequential(
-            nn.Linear(latent_dim + weather_dim, 128),
+            nn.Linear(latent_dim + weather_dim, 256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
+
+            nn.Linear(256, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+
+            nn.Linear(256, 128),
+            nn.ReLU(),
+
             nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Linear(64, 5),  # Iph, Io, n, Rs, Rsh (normalized)
+
+            nn.Linear(64, 5)
         )
 
         # -----------------------------

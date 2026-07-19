@@ -218,9 +218,9 @@ def plot_multiple_predictions(
 if __name__ == "__main__":
 
     plot_multiple_predictions(
-        dataset_path="data/jv_autoencoder_dataset_silicon.npz",
-        model_path="models/jv_autoencoder_silicon.pth",
+        dataset_path="data/jv_autoencoder_dataset_perovskite.npz",
+        model_path="models/jv_autoencoder_perovskite.pth",
         n_samples=10,
         random_samples=True,
-        save_dir="outputs/SunPower_5-1/ae/curves",
+        save_dir="outputs/Perovskite_5&6/ae/curves",
     )
