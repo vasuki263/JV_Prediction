@@ -387,14 +387,14 @@ if __name__ == "__main__":
         tech="SunPower_5-1",
         num_curves=10,
     )
-    curves = np.load("outputs/SunPower_5-1/ae/physics/metrics/curves.npz")
-    params_true = curves["diode_true"]
-    params_pred = curves["diode_pred"]
-
-    plot_electrical_params(
-        df=physics_results,
-        params_true=params_true,
-        params_pred=params_pred,
-        out_dir="outputs/SunPower_5-1/ae/physics/electrical_param_plots"
-    )
+    # curves = np.load("outputs/SunPower_5-1/ae/physics/metrics/curves.npz")
+    # params_true = curves["diode_true"]
+    # params_pred = curves["diode_pred"]
+    #
+    # plot_electrical_params(
+    #     df=physics_results,
+    #     params_true=params_true,
+    #     params_pred=params_pred,
+    #     out_dir="outputs/SunPower_5-1/ae/physics/electrical_param_plots"
+    # )
 
