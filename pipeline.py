@@ -6,21 +6,16 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
-from param_vs_irradiance_analysis import analyze_irradiance
 # from jv_vs_irr import analyze_irradiance_AE
 # from jv_vs_temp import analyze_temperature_AE
 
 load_dotenv()
 
 from jv_weather_pipeline import build_jv_weather_pipeline
-from build_dataset import build_dataset
-from train_lstm import train as train_lstm
-from evaluate_lstm import evaluate as eval_lstm
 from build_jv_ae_dataset import build_jv_autoencoder_dataset
 from train_autoencoder import train as train_ae
-from evaluate_autoencoder import evaluate_autoencoder as eval_ae
-from param_vs_temp_analysis import analyze_temperature
-import numpy as np
+from evaluate_autoencoder import evaluate_diode_model
+
 
 
 # ---------------------------------------------------------
@@ -84,31 +79,6 @@ def step_weather(cfg, logger):
     logger.info(f"Weather updated --> {cfg['weather_csv']}")
 
 
-def step_dataset(cfg, logger):
-    logger.info("=== STEP 1: Building dataset ===")
-    dataset = build_dataset(
-        tech=cfg["tech"],
-        clean_weather_path=cfg["weather_csv"]
-    )
-    if dataset is None:
-        logger.error("Dataset build returned None")
-    else:
-        logger.info("Dataset build complete")
-    return dataset
-
-
-def step_train_lstm(cfg, logger, run_dir, dataset):
-    logger.info("=== STEP 2: Training LSTM ===")
-    train_lstm(dataset, cfg["tech"], model_path=cfg["lstm_model_path"], run_dir=run_dir)
-    logger.info(f"LSTM model saved --> {cfg['lstm_model_path']}")
-
-
-def step_eval_lstm(cfg, logger):
-    logger.info("=== STEP 3: Evaluating LSTM ===")
-    eval_lstm(model_path=cfg["lstm_model_path"], tech=cfg["tech"], weather_csv=cfg["weather_csv"])
-    logger.info("LSTM evaluation complete")
-
-
 def step_ae_dataset(cfg, logger):
     logger.info("=== STEP AE-1: Building AE dataset ===")
     build_jv_autoencoder_dataset(
@@ -132,12 +102,16 @@ def step_train_ae(cfg, logger, run_dir):
 
 def step_eval_ae(cfg, logger):
     logger.info("=== STEP AE-3: Evaluating Autoencoder ===")
-    eval_ae(
+
+    preds, df = evaluate_diode_model(
         model_path=cfg["ae_model_path"],
         dataset_path=cfg["ae_dataset"],
-        tech=cfg["tech"]
+        tech=cfg["tech"],
+        num_curves=10
     )
+
     logger.info("AE evaluation complete")
+
 
 
 # ---------------------------------------------------------
@@ -145,61 +119,15 @@ def step_eval_ae(cfg, logger):
 # ---------------------------------------------------------
 def run_pipeline(cfg, args, logger, run_dir):
 
-    # LSTM training
-    if args.train_lstm or args.all:
-        dataset = step_dataset(cfg, logger)
-        step_train_lstm(cfg, logger, run_dir, dataset)
-
-    # LSTM evaluation
-    if args.eval_lstm or args.all:
-        step_eval_lstm(cfg, logger)
-
     # AE dataset build (needed for AE train/eval)
     if args.train_ae or args.all:
         # step_ae_dataset(cfg, logger)
         step_train_ae(cfg, logger, run_dir)
 
-    # AE training
-    # if args.train_ae or args.all:
-    #     step_train_ae(cfg, logger, run_dir)
-
     # AE evaluation
     if args.eval_ae or args.all:
         # step_ae_dataset(cfg, logger)
         step_eval_ae(cfg, logger)
-
-    # Temperature analysis (NOW USING LSTM)
-    if args.temp or args.all:
-        analyze_temperature(
-            dataset_path=cfg["lstm_dataset"],
-            model_path=cfg["lstm_model_path"],
-            tech=cfg["tech"]
-        )
-        logger.info("Temperature analysis complete")
-
-    if args.irr or args.all:
-        analyze_irradiance(
-            dataset_path=cfg["lstm_dataset"],
-            model_path=cfg["lstm_model_path"],
-            tech=cfg["tech"]
-        )
-        logger.info("Irradiance analysis complete")
-
-    # if args.temp_jv or args.all:
-    #     analyze_temperature_AE(
-    #         dataset_path=cfg['ae_dataset'],
-    #         model_path=cfg['ae_model_path'],
-    #         tech=cfg['tech']
-    #     )
-    #     logger.info("Temperature vs JV curves analysis complete")
-    #
-    # if args.irr_jv or args.all:
-    #     analyze_irradiance_AE(
-    #         dataset_path=cfg['ae_dataset'],
-    #         model_path=cfg['ae_model_path'],
-    #         tech=cfg['tech']
-    #     )
-    #     logger.info("Irradiance vs JV curves analysis complete")
 
 
 # ---------------------------------------------------------
