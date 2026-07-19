@@ -45,8 +45,8 @@ def train(
     lr=1e-4,
     epochs=100,
     val_split=0.2,
-    latent_dim=32,
-    lambda_params=1e-3,
+    latent_dim=64,
+    lambda_params=1e-2,
     lambda_residual=1e-3,
     lambda_latent=1e-5,
 ):
