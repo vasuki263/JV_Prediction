@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader, random_split
 from pathlib import Path
+from eval_AE import extract_jv_physics
 
 from model_autoencoder import PhysicsInformedJVModel
 
@@ -35,6 +36,25 @@ class JVPhysicsDataset(Dataset):
             self.weather[idx],
             self.diode_params_norm[idx],
         )
+
+def compute_physics_metrics(V_grid, I_batch):
+    Voc_list, Jsc_list, Vmpp_list, Jmpp_list, Pmpp_list, FF_list = [], [], [], [], [], []
+    for i in range(I_batch.shape[0]):
+        Voc, Jsc, Vmpp, Jmpp, Pmpp, FF = extract_jv_physics(V_grid, I_batch[i].detach().cpu().numpy())
+        Voc_list.append(Voc)
+        Jsc_list.append(Jsc)
+        Vmpp_list.append(Vmpp)
+        Jmpp_list.append(Jmpp)
+        Pmpp_list.append(Pmpp)
+        FF_list.append(FF)
+    return (
+        torch.tensor(Voc_list, device=I_batch.device),
+        torch.tensor(Jsc_list, device=I_batch.device),
+        torch.tensor(Vmpp_list, device=I_batch.device),
+        torch.tensor(Jmpp_list, device=I_batch.device),
+        torch.tensor(Pmpp_list, device=I_batch.device),
+        torch.tensor(FF_list, device=I_batch.device),
+    )
 
 
 def train(
@@ -70,6 +90,8 @@ def train(
 
     jv_dim = full_ds.jv_input.shape[1]
     weather_dim = full_ds.weather.shape[1]
+    T = full_ds.weather[:, 0:1]  # temperature column
+
 
     model = PhysicsInformedJVModel(
         jv_dim=jv_dim,
@@ -109,11 +131,61 @@ def train(
                 diode_params_norm=diode_norm,
             )
 
+            # Sort batch by temperature
+            # Convert to torch tensor
+            # Convert ONLY the temperature column to torch
+            T_torch = torch.as_tensor(weather[:, 0], dtype=torch.float32, device=device)
+
+            # Sort batch by temperature
+            T_sorted, idx = torch.sort(T_torch, dim=0)
+            jv_tgt_sorted = jv_tgt[idx]
+            I_pred_sorted = I_pred[idx]
+            I_phys_sorted = I_phys[idx]
+            diode_pred_sorted = diode_pred_norm[idx]
+
+            Voc, Jsc, Vmpp, Jmpp, Pmpp, FF = compute_physics_metrics(V_grid, I_pred_sorted)
+
             loss_recon = loss_fn_jv(I_pred, jv_tgt)
             loss_params = loss_fn_params(diode_pred_norm, diode_norm)
             loss_residual = (delta_I ** 2).mean()
             loss_latent = (z ** 2).mean()
             loss_phys = loss_fn_jv(I_phys, jv_tgt)
+
+            # -------------------------
+            # Temperature physics losses
+            # -------------------------
+
+            # Voc should DECREASE with temperature
+            loss_voc_temp = torch.mean(torch.relu(Voc[1:] - Voc[:-1]))
+
+            # Jsc should INCREASE with temperature
+            loss_jsc_temp = torch.mean(torch.relu(Jsc[:-1] - Jsc[1:]))
+
+            # Vmpp should DECREASE
+            loss_vmpp_temp = torch.mean(torch.relu(Vmpp[1:] - Vmpp[:-1]))
+
+            # Jmpp should INCREASE
+            loss_jmpp_temp = torch.mean(torch.relu(Jmpp[:-1] - Jmpp[1:]))
+
+            # Pmpp should INCREASE at moderate temperatures
+            loss_pmpp_temp = torch.mean(torch.relu(Pmpp[:-1] - Pmpp[1:]))
+
+            # Rs should DECREASE
+            loss_rs_temp = torch.mean(torch.relu(diode_pred_sorted[:, 3][1:] - diode_pred_sorted[:, 3][:-1]))
+
+            # Rsh should INCREASE
+            loss_rsh_temp = torch.mean(torch.relu(diode_pred_sorted[:, 4][:-1] - diode_pred_sorted[:, 4][1:]))
+
+            loss_temp = (
+                    0.1 * loss_voc_temp +
+                    0.1 * loss_jsc_temp +
+                    0.1 * loss_vmpp_temp +
+                    0.1 * loss_jmpp_temp +
+                    0.2 * loss_pmpp_temp +
+                    0.05 * loss_rs_temp +
+                    0.05 * loss_rsh_temp
+
+            )
 
             loss = (
                 loss_recon
@@ -150,11 +222,57 @@ def train(
                     diode_params_norm=diode_norm,
                 )
 
+                T_torch = torch.as_tensor(weather[:, 0], dtype=torch.float32, device=device)
+
+                # Sort batch by temperature
+                T_sorted, idx = torch.sort(T_torch, dim=0)
+                jv_tgt_sorted = jv_tgt[idx]
+                I_pred_sorted = I_pred[idx]
+                I_phys_sorted = I_phys[idx]
+                diode_pred_sorted = diode_pred_norm[idx]
+
+                Voc, Jsc, Vmpp, Jmpp, Pmpp, FF = compute_physics_metrics(V_grid, I_pred_sorted)
+
                 loss_recon = loss_fn_jv(I_pred, jv_tgt)
                 loss_params = loss_fn_params(diode_pred_norm, diode_norm)
                 loss_residual = (delta_I ** 2).mean()
                 loss_latent = (z ** 2).mean()
                 loss_phys = loss_fn_jv(I_phys, jv_tgt)
+                # -------------------------
+                # Temperature physics losses
+                # -------------------------
+
+                # Voc should DECREASE with temperature
+                loss_voc_temp = torch.mean(torch.relu(Voc[1:] - Voc[:-1]))
+
+                # Jsc should INCREASE with temperature
+                loss_jsc_temp = torch.mean(torch.relu(Jsc[:-1] - Jsc[1:]))
+
+                # Vmpp should DECREASE
+                loss_vmpp_temp = torch.mean(torch.relu(Vmpp[1:] - Vmpp[:-1]))
+
+                # Jmpp should INCREASE
+                loss_jmpp_temp = torch.mean(torch.relu(Jmpp[:-1] - Jmpp[1:]))
+
+                # Pmpp should INCREASE at moderate temperatures
+                loss_pmpp_temp = torch.mean(torch.relu(Pmpp[:-1] - Pmpp[1:]))
+
+                # Rs should DECREASE
+                loss_rs_temp = torch.mean(torch.relu(diode_pred_sorted[:, 3][1:] - diode_pred_sorted[:, 3][:-1]))
+
+                # Rsh should INCREASE
+                loss_rsh_temp = torch.mean(torch.relu(diode_pred_sorted[:, 4][:-1] - diode_pred_sorted[:, 4][1:]))
+
+                loss_temp = (
+                        0.1 * loss_voc_temp +
+                        0.1 * loss_jsc_temp +
+                        0.1 * loss_vmpp_temp +
+                        0.1 * loss_jmpp_temp +
+                        0.2 * loss_pmpp_temp +
+                        0.05 * loss_rs_temp +
+                        0.05 * loss_rsh_temp
+
+                )
 
                 loss = (
                     loss_recon
