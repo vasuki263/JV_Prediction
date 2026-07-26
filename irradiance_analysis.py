@@ -287,8 +287,10 @@ def analyze_irradiance_physics_model(
         Iph = diode_raw[0]
         Io = diode_raw[1]
         n = 0.8 + 2.2 * (1 / (1 + np.exp(-diode_raw[2])))  # sigmoid
-        Rs = 20.0 * (1 / (1 + np.exp(-diode_raw[3])))  # sigmoid
+        Rs = diode_raw[3]  # sigmoid
         Rsh = diode_raw[4]  # raw
+        if Rsh < 0:
+            Rsh = -Rsh
 
         Rs_list.append(Rs)
         Rsh_list.append(Rsh)
