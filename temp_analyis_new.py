@@ -91,7 +91,7 @@ def plot_sensitivity_bar(betas, outpath):
 # ---------------------------------------------------------
 def analyze_temperature(dataset_path, model_path, tech):
 
-    output_dir = Path(f"outputs/{tech}/temperature_analysis")
+    output_dir = Path(f"outputs/{tech}/temperature_analysis/diff_rep")
     reset_dir(output_dir)
 
     # =====================================================
@@ -129,7 +129,7 @@ def analyze_temperature(dataset_path, model_path, tech):
     # FAST Temperature sweep using K random samples
     # =====================================================
     temps = np.arange(20, 75, 5)
-    K = 60  # number of samples per temperature
+    K = 40  # number of samples per temperature
 
     N = len(jv_in)
     rng = np.random.default_rng(42)
