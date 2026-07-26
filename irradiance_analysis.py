@@ -6,8 +6,7 @@ from pathlib import Path
 import os
 import shutil
 
-from model_autoencoder import PhysicsInformedJVModel
-from eval_AE import extract_jv_physics
+from model_autoencoder import PhysicsInformedJVModel  # adjust import
 
 
 # ---------------------------------------------------------
@@ -24,28 +23,79 @@ def reset_dir(path):
 # ---------------------------------------------------------
 def irr_coeff(x, y):
     slope = np.polyfit(x, y, 1)[0]
-    gamma = slope / np.mean(y) * 100
-    return gamma, slope
+    beta = slope * 1000 / np.mean(y)
+    return beta, slope
 
+def plot_param_log(
+    irr,
+    values,
+    name,
+    ylabel,
+    outpath
+):
+    """
+    Plot parameter vs log10(irradiance), but compute beta using linear irradiance.
+    """
+
+    # Compute beta using linear G (unchanged)
+    beta, slope = irr_coeff(irr, values)
+
+    # Log-transform irradiance
+    irr_log = np.log10(irr)
+
+    # Fit line in log-space (for visualization only)
+    z = np.polyfit(irr_log, values, 1)
+    fit = np.poly1d(z)
+
+    xfit = np.linspace(irr_log.min(), irr_log.max(), 200)
+
+    plt.figure(figsize=(7,5))
+
+    plt.plot(
+        irr_log,
+        values,
+        "o-",
+        linewidth=2,
+        markersize=6,
+        label=name
+    )
+
+    plt.plot(
+        xfit,
+        fit(xfit),
+        linewidth=3,
+        label=f"β={beta:.3f}% per kW/m²"
+    )
+
+    plt.xlabel("log10(Irradiance)")
+    plt.ylabel(ylabel)
+
+    plt.grid(True)
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(outpath, dpi=150)
+    plt.close()
+
+    return beta, slope
 
 # ---------------------------------------------------------
 # Plot helper
 # ---------------------------------------------------------
-def plot_param(x, values, name, ylabel, xlabel, outpath):
+def plot_param(irr, values, name, ylabel, outpath):
 
-    gamma, slope = irr_coeff(x, values)
+    beta, slope = irr_coeff(irr, values)
 
-    z = np.polyfit(x, values, 1)
+    z = np.polyfit(irr, values, 1)
     fit = np.poly1d(z)
 
-    xx = np.linspace(x.min(), x.max(), 200)
+    xfit = np.linspace(irr.min(), irr.max(), 200)
 
     plt.figure(figsize=(7,5))
-    plt.plot(x, values, "o-", linewidth=2, markersize=6, label=name)
-    plt.plot(xx, fit(xx), linewidth=3,
-             label=f"γ={gamma:.3f}%/(W/m²)")
+    plt.plot(irr, values, "o-", linewidth=2, markersize=6, label=name)
+    plt.plot(xfit, fit(xfit), linewidth=3, label=f"β={beta:.3f}% per kW/m²")
 
-    plt.xlabel(xlabel)
+    plt.xlabel("Irradiance (W/m²)")
     plt.ylabel(ylabel)
     plt.grid(True)
     plt.legend()
@@ -53,338 +103,277 @@ def plot_param(x, values, name, ylabel, xlabel, outpath):
     plt.savefig(outpath, dpi=150)
     plt.close()
 
-    return gamma, slope
+    return beta, slope
 
 
-def plot_sensitivity_bar(coeffs, outpath):
-
-    params = list(coeffs.keys())
-    values = [abs(coeffs[p][0]) for p in params]
+def plot_sensitivity_bar(betas, outpath):
+    params = list(betas.keys())
+    beta_values = [abs(betas[p][0]) for p in params]
 
     plt.figure(figsize=(7,5))
-    plt.bar(params, values)
-    plt.ylabel("Sensitivity")
-    plt.title("Irradiance Sensitivity")
+    plt.bar(params, beta_values, color="tab:blue")
+    plt.ylabel("Sensitivity |β| (% per kW/m²)")
+    plt.title("Irradiance Sensitivity per Parameter")
     plt.grid(axis="y", alpha=0.3)
     plt.tight_layout()
     plt.savefig(outpath, dpi=200)
     plt.close()
 
+def extract_voc(V, I):
+    V = np.asarray(V, float)
+    I = np.asarray(I, float)
+
+    # If all currents are negative → Voc near highest V
+    if np.all(I < 0):
+        k = np.argmin(np.abs(I))
+        return V[k]
+
+    # If all currents are positive → Voc near lowest V
+    if np.all(I > 0):
+        k = np.argmin(np.abs(I))
+        return V[k]
+
+    # Look for zero crossing between points
+    for k in range(len(I) - 1):
+        if (I[k] <= 0 and I[k+1] >= 0) or (I[k] >= 0 and I[k+1] <= 0):
+            return np.interp(0.0, [I[k], I[k+1]], [V[k], V[k+1]])
+
+    # Fallback: nearest-to-zero current
+    k = np.argmin(np.abs(I))
+    return V[k]
+
+# ---------------------------------------------------------
+# JV metric extraction
+# ---------------------------------------------------------
+def extract_jv_metrics(V, I):
+    V = np.asarray(V, float)
+    I = np.asarray(I, float)
+
+    mask = np.isfinite(V) & np.isfinite(I)
+    V = V[mask]
+    I = I[mask]
+
+    if len(V) < 5:
+        return np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
+
+    idx = np.argsort(V)
+    V = V[idx]
+    I = I[idx]
+
+    # Jsc
+    Jsc = np.interp(0.0, V, I)
+
+    # Voc
+    Voc = extract_voc(V, I)
+
+    # Use only V >= 0 region
+    mask_vpos = V >= 0
+    V_pos = V[mask_vpos]
+    I_pos = I[mask_vpos]
+
+    if len(V_pos) == 0:
+        return Voc, Jsc, np.nan, np.nan, np.nan, np.nan
+
+    # Power (absolute, since current is often negative)
+    P = V_pos * I_pos
+    P_abs = np.abs(P)
+
+    k = np.argmax(P_abs)
+
+    Vmpp = V_pos[k]
+    Jmpp = I_pos[k]
+    Pmpp = P_abs[k]
+
+    # FF = Pmpp / (np.abs(Voc) * np.abs(Jsc) + 1e-12)
+    denom = Voc * Jsc
+
+    if (
+            np.isnan(Voc)
+            or np.isnan(Jsc)
+            or abs(denom) < 1e-8
+    ):
+        FF = np.nan
+    else:
+        FF = Pmpp / denom
+
+    return Voc, Jsc, Vmpp, Jmpp, Pmpp, FF
+
 
 # ---------------------------------------------------------
 # Main analysis
 # ---------------------------------------------------------
-def analyze_irradiance(dataset_path,
-                       model_path,
-                       tech,
-                       irradiance_index=1):
+def analyze_irradiance_physics_model(
+    dataset_path,
+    model_path,
+    tech,
+):
 
-    output_dir = Path(f"outputs/{tech}/irradiance_analysis")
+    output_dir = Path(f"outputs/{tech}/irradiance_analysis_physics")
     reset_dir(output_dir)
 
-    # -----------------------------------------------------
-    # Dataset
-    # -----------------------------------------------------
+    # =====================================================
+    # Load dataset
+    # =====================================================
     data = np.load(dataset_path, allow_pickle=True)
 
-    jv_in = data["jv_input"].astype(np.float32)
-    weather = data["weather"].astype(np.float32)
-    V_grid = data["V_grid"].astype(np.float32)
-
+    jv_input = data["jv_input"]          # (N, jv_dim)
+    weather = data["weather"]            # (N, 2) → [temp, irr]
+    V_grid = data["V_grid"]              # (jv_dim,)
     diode_stats = data["diode_params_stats"].item()
-    # True (unnormalized) diode parameters from dataset
-    diode_true = data["diode_params"]
 
-    Iph_true = diode_true[:, 0]
-    Io_true = diode_true[:, 1]
-    n_true = diode_true[:, 2]
-    Rs_true = diode_true[:, 3]
-    Rsh_true = diode_true[:, 4]
+    diode_mean = diode_stats["mean"]
+    diode_std = diode_stats["std"]
 
-    # -----------------------------------------------------
-    # Model
-    # -----------------------------------------------------
+    jv_dim = jv_input.shape[1]
+    weather_dim = weather.shape[1]
+
+    # =====================================================
+    # Load model
+    # =====================================================
     ckpt = torch.load(model_path, map_location="cpu")
 
     model = PhysicsInformedJVModel(
-        jv_dim=jv_in.shape[1],
-        weather_dim=weather.shape[1],
+        jv_dim=jv_input.shape[1],  # should be 200
+        weather_dim=weather.shape[1],  # should be 2
         voltage_grid=V_grid,
-        latent_dim=ckpt["latent_dim"],
-        diode_mean=ckpt["diode_mean"],
-        diode_std=ckpt["diode_std"],
+        latent_dim=32,  # MUST match training
+        hidden_dims=(256, 128),  # MUST match training
+        diode_mean=diode_mean,
+        diode_std=diode_std,
     )
 
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model.to(device)
+    # =====================================================
+    # Reference sample
+    # =====================================================
+    jv_sample = np.mean(jv_input, axis=0)
+    weather_sample = np.mean(weather, axis=0)
 
-    # -----------------------------------------------------
-    # Representative sample
-    # -----------------------------------------------------
-    idx = np.argmin(np.abs(weather[:, irradiance_index] - 800))
+    # irradiance index = 1 (weather = [temp, irr])
+    irr_idx = 1
 
-    sample_jv = jv_in[idx].copy()
-    sample_weather = weather[idx].copy()
-
-    # -----------------------------------------------------
+    # =====================================================
     # Irradiance sweep
-    # -----------------------------------------------------
-    irradiances = np.arange(200, 1100, 100)
+    # =====================================================
+    irr_values = np.arange(200, 1200, 50)
 
-    vocs = []
-    jscs = []
-    vmpps = []
-    jmpps = []
-    pmpps = []
-    ffs = []
+    vocs, jscs, ffs, pmpps = [], [], [], []
+    Rs_list = []
+    Rsh_list = []
+    Rsh_norm_list = []
 
-    rss = []
-    rshs = []
+    for G in irr_values:
 
-    for G in irradiances:
+        jv_vec = jv_sample.copy()
+        weather_vec = weather_sample.copy()
 
-        w = sample_weather.copy()
-        w[irradiance_index] = G
+        # Direct irradiance (no scaler in dataset)
+        weather_vec[irr_idx] = np.float32(G)
 
-        jv_t = torch.tensor(sample_jv,
-                            dtype=torch.float32,
-                            device=device).unsqueeze(0)
-
-        w_t = torch.tensor(w,
-                           dtype=torch.float32,
-                           device=device).unsqueeze(0)
+        jv_tensor = torch.tensor(jv_vec, dtype=torch.float32).unsqueeze(0)
+        weather_tensor = torch.tensor(weather_vec, dtype=torch.float32).unsqueeze(0)
 
         with torch.no_grad():
-            I_pred, I_phys, delta_I, z, diode_pred_norm = model(jv_t, w_t)
+            I_pred, I_phys, delta_I, z, diode_pred_norm = model(jv_tensor, weather_tensor)
 
-        I_pred = I_pred.squeeze().cpu().numpy()
+        I_curve = I_pred.squeeze(0).cpu().numpy()
+        # ---------------------------------------------
+        # Extract diode parameters (denormalized)
+        # ---------------------------------------------
+        diode_raw = diode_pred_norm.squeeze(0).cpu().numpy() * diode_std + diode_mean
 
-        Voc, Jsc, Vmpp, Jmpp, Pmpp, FF = extract_jv_physics(
-            V_grid,
-            I_pred
-        )
+        Iph = diode_raw[0]
+        Io = diode_raw[1]
+        n = 0.8 + 2.2 * (1 / (1 + np.exp(-diode_raw[2])))  # sigmoid
+        Rs = 20.0 * (1 / (1 + np.exp(-diode_raw[3])))  # sigmoid
+        Rsh = diode_raw[4]  # raw
 
-        diode = diode_pred_norm.squeeze().cpu().numpy()
-        diode = diode * diode_stats["std"] + diode_stats["mean"]
+        Rs_list.append(Rs)
+        Rsh_list.append(Rsh)
 
-        Iph, Io, n, Rs, Rsh = diode
+        Voc, Jsc, Vmpp, Jmpp, Pmpp, FF = extract_jv_metrics(V_grid, I_curve)
+        # ---------------------------------------------
+        # Normalized shunt resistance (dimensionless)
+        # ---------------------------------------------
+        Rsh_norm = Rsh / (Voc / (Jsc + 1e-12))
+        Rsh_norm_list.append(Rsh_norm)
 
         vocs.append(Voc)
         jscs.append(Jsc)
-        vmpps.append(Vmpp)
-        jmpps.append(Jmpp)
-        pmpps.append(Pmpp)
         ffs.append(FF)
+        pmpps.append(Pmpp)
 
-        rss.append(Rs)
-        rshs.append(Rsh)
-
-    # -----------------------------------------------------
-    # Save CSV
-    # -----------------------------------------------------
-    df = pd.DataFrame({
-
-        "Irradiance": irradiances,
-
+    # =====================================================
+    # Save predictions
+    # =====================================================
+    results = pd.DataFrame({
+        "irradiance": irr_values,
         "Voc": vocs,
         "Jsc": jscs,
-        "Vmpp": vmpps,
-        "Jmpp": jmpps,
-        "Pmpp": pmpps,
         "FF": ffs,
-        "Rs": rss,
-        "Rsh": rshs
-
+        "Pmpp": pmpps,
+        "Rs": Rs_list,
+        "Rsh": Rsh_list,
     })
 
-    df.to_csv(output_dir / "irradiance_sweep.csv",
-              index=False)
+    results.to_csv(output_dir / "irradiance_sweep_physics.csv", index=False)
 
-    # -----------------------------------------------------
+    # =====================================================
     # Plots
-    # -----------------------------------------------------
-    coeffs = {}
+    # =====================================================
+    betas = {}
 
-    coeffs["Voc"] = plot_param(
-        irradiances,
-        np.array(vocs),
-        "Voc",
-        "Voc (V)",
-        "Irradiance (W/m²)",
-        output_dir / "Voc_vs_G.png"
-    )
+    betas["Voc"] = plot_param(irr_values, np.array(vocs), "Voc", "Voc (V)",
+                              output_dir / "Voc_vs_irr_physics.png")
 
-    coeffs["Jsc"] = plot_param(
-        irradiances,
-        np.array(jscs),
-        "Jsc",
-        "Jsc (A)",
-        "Irradiance (W/m²)",
-        output_dir / "Jsc_vs_G.png"
-    )
+    betas["Jsc"] = plot_param(irr_values, np.array(jscs), "Jsc", "Jsc (A)",
+                              output_dir / "Jsc_vs_irr_physics.png")
 
-    coeffs["Vmpp"] = plot_param(
-        irradiances,
-        np.array(vmpps),
-        "Vmpp",
-        "Vmpp (V)",
-        "Irradiance (W/m²)",
-        output_dir / "Vmpp_vs_G.png"
-    )
+    betas["FF"] = plot_param(irr_values, np.array(ffs), "FF", "Fill Factor",
+                             output_dir / "FF_vs_irr_physics.png")
 
-    coeffs["Jmpp"] = plot_param(
-        irradiances,
-        np.array(jmpps),
-        "Jmpp",
-        "Jmpp (A)",
-        "Irradiance (W/m²)",
-        output_dir / "Jmpp_vs_G.png"
-    )
-
-    coeffs["Pmpp"] = plot_param(
-        irradiances,
-        np.array(pmpps),
-        "Pmpp",
-        "Pmpp (W)",
-        "Irradiance (W/m²)",
-        output_dir / "Pmpp_vs_G.png"
-    )
-
-    coeffs["FF"] = plot_param(
-        irradiances,
-        np.array(ffs),
-        "FF",
-        "Fill Factor",
-        "Irradiance (W/m²)",
-        output_dir / "FF_vs_G.png"
-    )
-
-    coeffs["Rs"] = plot_param(
-        irradiances,
-        np.array(rss),
+    betas["Pmpp"] = plot_param(irr_values, np.array(pmpps), "Pmpp", "Pmpp (W)",
+                               output_dir / "Pmpp_vs_irr_physics.png")
+    betas["Rs"] = plot_param(
+        irr_values,
+        np.array(Rs_list),
         "Rs",
         "Series Resistance (Ω)",
-        "Irradiance (W/m²)",
-        output_dir / "Rs_vs_G.png"
+        output_dir / "Rs_vs_irr_physics.png"
     )
 
-    coeffs["Rsh"] = plot_param(
-        irradiances,
-        np.array(rshs),
+    betas["Rsh"] = plot_param(
+        irr_values,
+        np.array(Rsh_list),
         "Rsh",
         "Shunt Resistance (Ω)",
-        "Irradiance (W/m²)",
-        output_dir / "Rsh_vs_G.png"
+        output_dir / "Rsh_vs_irr_physics.png"
     )
 
-    plot_sensitivity_bar(
-        coeffs,
-        output_dir / "irradiance_sensitivity_bar.png"
+    plot_sensitivity_bar(betas, output_dir / "irradiance_sensitivity_bar_physics.png")
+
+    # =====================================================
+    # Save coefficients
+    # =====================================================
+    pd.DataFrame(betas, index=["beta_%_per_Wm2", "slope"]).T.to_csv(
+        output_dir / "irradiance_coefficients_physics.csv"
     )
 
-    pd.DataFrame(
-        coeffs,
-        index=["gamma", "slope"]
-    ).T.to_csv(
-        output_dir / "irradiance_coefficients.csv"
-    )
-
-    print(pd.DataFrame(
-        coeffs,
-        index=["gamma", "slope"]
-    ).T)
-
-    # -----------------------------------------------------
-    # Plot TRUE diode parameters vs irradiance
-    # (mean value in each irradiance bin)
-    # -----------------------------------------------------
-
-    irr = weather[:, irradiance_index]
-
-    irradiance_bins = np.arange(200, 1100, 100)
-
-    true_params = {
-        "Iph": (Iph_true, "Photocurrent (A)"),
-        "Io": (Io_true, "Saturation Current (A)"),
-        "n": (n_true, "Ideality Factor"),
-        "Rs": (Rs_true, "Series Resistance (Ω)"),
-        "Rsh": (Rsh_true, "Shunt Resistance (Ω)")
-    }
-
-    for name, (values, ylabel) in true_params.items():
-
-        means = []
-
-        for G in irradiance_bins:
-            mask = np.abs(irr - G) <= 50  # ±50 W/m² bin
-
-            if np.sum(mask) > 0:
-                means.append(np.mean(values[mask]))
-            else:
-                means.append(np.nan)
-
-        means = np.array(means)
-
-        gamma, slope = irr_coeff(irradiance_bins, means)
-
-        z = np.polyfit(irradiance_bins[~np.isnan(means)],
-                       means[~np.isnan(means)], 1)
-
-        fit = np.poly1d(z)
-
-        xx = np.linspace(
-            irradiance_bins.min(),
-            irradiance_bins.max(),
-            200
-        )
-
-        plt.figure(figsize=(7, 5))
-
-        plt.plot(
-            irradiance_bins,
-            means,
-            "o-",
-            linewidth=2,
-            markersize=6,
-            label="True"
-        )
-
-        plt.plot(
-            xx,
-            fit(xx),
-            linewidth=3,
-            label=f"γ={gamma:.3f}%/(W/m²)"
-        )
-
-        plt.xlabel("Irradiance (W/m²)")
-        plt.ylabel(ylabel)
-        plt.grid(True)
-        plt.legend()
-        plt.tight_layout()
-
-        plt.savefig(
-            output_dir / f"{name}_true_vs_G.png",
-            dpi=150
-        )
-
-        plt.close()
+    print("\nIrradiance coefficients (physics-informed model):")
+    print(pd.DataFrame(betas, index=["beta_%_per_Wm2", "slope"]).T)
 
 
 if __name__ == "__main__":
-
-    analyze_irradiance(
-        "data/jv_autoencoder_dataset_perovskite.npz",
-        "models/jv_autoencoder_perovskite.pth",
+    analyze_irradiance_physics_model(
+        dataset_path="data/jv_autoencoder_dataset_perovskite.npz",
+        model_path="models/jv_autoencoder_perovskite.pth",
         tech="Perovskite_5&6",
-        irradiance_index=1     # <-- change if irradiance is another column
     )
 
-    analyze_irradiance(
+    analyze_irradiance_physics_model(
         "data/jv_autoencoder_dataset_silicon.npz",
         "models/jv_autoencoder_silicon.pth",
         tech="SunPower_5-1",
-        irradiance_index=1
     )

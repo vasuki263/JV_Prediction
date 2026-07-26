@@ -247,7 +247,6 @@ def build_jv_autoencoder_dataset(
     weather_inputs = np.stack(weather_inputs)
     diode_params = np.stack(diode_params)
 
-
     # diode_params_norm = np.stack(diode_params_norm)
     # diode_params_mean = np.stack(diode_params_mean)
     # -----------------------------------------
