@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import pandas as pd
 import matplotlib.pyplot as plt
+from numpy.ma.core import negative
 
 from model_autoencoder import PhysicsInformedJVModel
 
@@ -242,7 +243,8 @@ def evaluate_diode_model(
 
         Iph_t, Io_t, n_t, Rs_t, Rsh_t = diode_true[idx]
         Iph_p, Io_p, n_p, Rs_p, Rsh_p = params_preds[idx]
-
+        if Rsh_p < 0:
+            Rsh_p = -(Rsh_p)
 
 
 
@@ -381,11 +383,17 @@ def plot_electrical_params(df, params_true, params_pred, out_dir):
 
 
 if __name__ == "__main__":
+    # preds, physics_results = evaluate_diode_model(
+    #     model_path="models/jv_autoencoder_silicon.pth",
+    #     dataset_path="data/jv_autoencoder_dataset_silicon.npz",
+    #     tech="SunPower_5-1",
+    #     num_curves=10,
+    # )
+
     preds, physics_results = evaluate_diode_model(
-        model_path="models/jv_autoencoder_silicon.pth",
-        dataset_path="data/jv_autoencoder_dataset_silicon.npz",
-        tech="SunPower_5-1",
-        num_curves=10,
+        dataset_path="data/jv_autoencoder_dataset_perovskite.npz",
+    model_path="models/jv_autoencoder_perovskite.pth",
+    tech="Perovskite_5&6", num_curves=10,
     )
     # curves = np.load("outputs/SunPower_5-1/ae/physics/metrics/curves.npz")
     # params_true = curves["diode_true"]

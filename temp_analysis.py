@@ -143,6 +143,8 @@ def analyze_temperature(dataset_path, model_path, tech):
         diode_params = diode_params * diode_stats["std"] + diode_stats["mean"]
 
         Iph, Io, n, Rs, Rsh = diode_params
+        if Rsh < 0:
+            Rsh = -Rsh
 
         vocs.append(Voc)
         jscs.append(Jsc)
