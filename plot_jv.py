@@ -220,7 +220,7 @@ if __name__ == "__main__":
     plot_multiple_predictions(
         dataset_path="data/jv_autoencoder_dataset_silicon.npz",
         model_path="models/jv_autoencoder_silicon.pth",
-        n_samples=10,
+        n_samples=15,
         random_samples=True,
         save_dir="outputs/SunPower_5-1/ae/curves",
     )
