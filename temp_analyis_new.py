@@ -86,92 +86,13 @@ def plot_sensitivity_bar(betas, outpath):
     plt.savefig(outpath, dpi=200)
     plt.close()
 
-def compute_sensitivity_scores(P_base, params_dict, outdir):
-
-    SS_plus = {}
-    SS_minus = {}
-    NL = {}
-
-    for pname, pvals in params_dict.items():
-
-        pvals = np.array(pvals)
-
-        # +10% and -10% perturbations
-        p_plus = 1.10 * pvals
-        p_minus = 0.90 * pvals
-
-        # Recompute power depending on parameter
-        if pname == "Vmpp":
-            P_plus = p_plus * params_dict["Jmpp"]
-            P_minus = p_minus * params_dict["Jmpp"]
-
-        elif pname == "Jmpp":
-            P_plus = params_dict["Vmpp"] * p_plus
-            P_minus = params_dict["Vmpp"] * p_minus
-
-        elif pname == "FF":
-            Voc = params_dict["Voc"]
-            Jsc = params_dict["Jsc"]
-            P_plus = p_plus * Voc * Jsc
-            P_minus = p_minus * Voc * Jsc
-
-        else:
-            # Linear approximation for Voc, Jsc, Rs, Rsh
-            P_plus = P_base * (p_plus / pvals)
-            P_minus = P_base * (p_minus / pvals)
-
-        # ΔP
-        dP_plus = P_plus - P_base
-        dP_minus = P_minus - P_base
-
-        # Sensitivity Score
-        SS_plus[pname] = (np.mean(dP_plus) / np.mean(P_base)) * 100
-        SS_minus[pname] = (np.mean(dP_minus) / np.mean(P_base)) * 100
-
-        # Nonlinearity
-        NL[pname] = abs(abs(SS_plus[pname]) - abs(SS_minus[pname]))
-
-    # Save CSV
-    df = pd.DataFrame({
-        "SS_plus": SS_plus,
-        "SS_minus": SS_minus,
-        "Nonlinearity": NL
-    })
-    df.to_csv(outdir / "sensitivity_scores.csv")
-
-    # Plot sensitivity
-    plt.figure(figsize=(10,6))
-    plt.bar(df.index, df["SS_plus"], label="SS(+10%)", alpha=0.7)
-    plt.bar(df.index, df["SS_minus"], label="SS(-10%)", alpha=0.7)
-    plt.xticks(rotation=45)
-    plt.ylabel("Sensitivity Score (%)")
-    plt.title("Sensitivity Scores (+10% and -10%)")
-    plt.grid(alpha=0.3)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(outdir / "sensitivity_scores_bar.png")
-    plt.close()
-
-    # Plot nonlinearity
-    plt.figure(figsize=(10,6))
-    plt.bar(df.index, df["Nonlinearity"], color="purple")
-    plt.xticks(rotation=45)
-    plt.ylabel("|SS(+)| - |SS(-)|")
-    plt.title("Nonlinearity per Parameter")
-    plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(outdir / "nonlinearity_scores.png")
-    plt.close()
-
-    return df
-
 
 # ---------------------------------------------------------
 # Main analysis
 # ---------------------------------------------------------
 def analyze_temperature(dataset_path, model_path, tech):
 
-    output_dir = Path(f"outputs/{tech}/temperature_analysis/diff_rep3")
+    output_dir = Path(f"outputs/{tech}/temperature_analysis/diff_rep2")
     reset_dir(output_dir)
 
     # =====================================================
@@ -209,7 +130,9 @@ def analyze_temperature(dataset_path, model_path, tech):
     # FAST Temperature sweep using K random samples
     # =====================================================
     temps = np.arange(20, 75, 5)
-    K = 50  # number of samples per temperature
+    # temps = np.linspace(20, 75, 30)
+
+    K = 120  # number of samples per temperature
 
     N = len(jv_in)
     rng = np.random.default_rng(42)
@@ -220,6 +143,9 @@ def analyze_temperature(dataset_path, model_path, tech):
     jmpps_mean, jmpps_std = [], []
     pmpps_mean, pmpps_std = [], []
     ffs_mean, ffs_std = [], []
+    Ios_mean, Ios_std = [], []
+    Iphs_mean, Iphs_std = [],[]
+    n_mean, n_std = [], []
     rss_mean, rss_std = [], []
     rshs_mean, rshs_std = [], []
 
@@ -228,7 +154,7 @@ def analyze_temperature(dataset_path, model_path, tech):
         idxs = rng.choice(N, size=K, replace=False)
 
         Voc_list, Jsc_list, Vmpp_list, Jmpp_list, Pmpp_list, FF_list = [], [], [], [], [], []
-        Rs_list, Rsh_list = [], []
+        Iph_list, Io_list, n_list, Rs_list, Rsh_list = [], [], [], [], []
 
         for i in idxs:
 
@@ -249,7 +175,8 @@ def analyze_temperature(dataset_path, model_path, tech):
 
             diode_params = diode_pred_norm.squeeze(0).cpu().numpy()
             diode_params = diode_params * diode_stats["std"] + diode_stats["mean"]
-            _, _, _, Rs, Rsh = diode_params
+            Iph, Io, n, Rs, Rsh = diode_params
+
             if Rsh < 0:
                 Rsh = -Rsh
 
@@ -259,6 +186,9 @@ def analyze_temperature(dataset_path, model_path, tech):
             Jmpp_list.append(Jmpp)
             Pmpp_list.append(Pmpp)
             FF_list.append(FF)
+            Iph_list.append(Iph)
+            Io_list.append(Io)
+            n_list.append(n)
             Rs_list.append(Rs)
             Rsh_list.append(Rsh)
 
@@ -279,6 +209,15 @@ def analyze_temperature(dataset_path, model_path, tech):
 
         ffs_mean.append(np.nanmean(FF_list))
         ffs_std.append(np.nanstd(FF_list))
+
+        Ios_mean.append(np.nanmean(Io_list))
+        Ios_std.append(np.nanstd(Io_list))
+
+        Iphs_mean.append(np.nanmean(Iph_list))
+        Iphs_std.append(np.nanstd(Iph_list))
+
+        n_mean.append(np.nanmean(n_list))
+        n_std.append(np.nanstd(n_list))
 
         rss_mean.append(np.nanmean(Rs_list))
         rss_std.append(np.nanstd(Rs_list))
@@ -303,6 +242,12 @@ def analyze_temperature(dataset_path, model_path, tech):
         "Pmpp_std": pmpps_std,
         "FF_mean": ffs_mean,
         "FF_std": ffs_std,
+        "Io_mean": Ios_mean,
+        "Io_std": Ios_std,
+        "Iph_mean": Iphs_mean,
+        "Iph_std": Iphs_std,
+        "n_mean": n_mean,
+        "n_std": n_std,
         "Rs_mean": rss_mean,
         "Rs_std": rss_std,
         "Rsh_mean": rshs_mean,
@@ -314,23 +259,7 @@ def analyze_temperature(dataset_path, model_path, tech):
     # =====================================================
     # Plots
     # =====================================================
-    # -----------------------------------------------------
-    # Sensitivity Score Analysis
-    # -----------------------------------------------------
-    params_dict = {
-        "Voc": vocs_mean,
-        "Jsc": jscs_mean,
-        "Vmpp": vmpps_mean,
-        "Jmpp": jmpps_mean,
-        "Pmpp": pmpps_mean,
-        "FF": ffs_mean,
-        "Rs": rss_mean,
-        "Rsh": rshs_mean,
-    }
 
-    P_base = np.array(pmpps_mean)
-
-    compute_sensitivity_scores(P_base, params_dict, output_dir)
 
     gammas = {}
 
@@ -340,7 +269,9 @@ def analyze_temperature(dataset_path, model_path, tech):
     gammas["Jmpp"] = plot_param(temps, jmpps_mean, jmpps_std, "Jmpp", "Jmpp (A)", output_dir / "Jmpp_vs_T.png")
     gammas["Pmpp"] = plot_param(temps, pmpps_mean, pmpps_std, "Pmpp", "Pmpp (W)", output_dir / "Pmpp_vs_T.png")
     gammas["FF"] = plot_param(temps, ffs_mean, ffs_std, "FF", "Fill Factor", output_dir / "FF_vs_T.png")
-
+    gammas["Io"] = plot_param(temps, Ios_mean, Ios_std, "Io", "Io (A)", output_dir / "Io_vs_T.png")
+    gammas["Iph"] = plot_param(temps, Iphs_mean, Iphs_std, "Iph", "Iph (A)", output_dir / "Iph_vs_T.png")
+    gammas["n"] = plot_param(temps, n_mean, n_std, "n", "", output_dir / "n_vs_T.png")
     gammas["Rs"] = plot_param(temps, rss_mean, rss_std, "Rs", "Series Resistance (Ω)", output_dir / "Rs_vs_T.png")
     gammas["Rsh"] = plot_param(temps, rshs_mean, rshs_std, "Rsh", "Shunt Resistance (Ω)", output_dir / "Rsh_vs_T.png")
 
@@ -355,15 +286,15 @@ def analyze_temperature(dataset_path, model_path, tech):
 
 
 if __name__ == "__main__":
-    # analyze_temperature(
-    #     "data/jv_autoencoder_dataset_perovskite.npz",
-    #     "models/jv_autoencoder_perovskite.pth",
-    #     tech="Perovskite_5&6",
-    # )
     analyze_temperature(
-        "data/jv_autoencoder_dataset_silicon.npz",
-        "models/jv_autoencoder_silicon.pth",
-        tech="SunPower_5-1",
+        "data/jv_autoencoder_dataset_perovskite.npz",
+        "models/jv_autoencoder_perovskite.pth",
+        tech="Perovskite_5&6",
     )
+    # analyze_temperature(
+    #     "data/jv_autoencoder_dataset_silicon.npz",
+    #     "models/jv_autoencoder_silicon.pth",
+    #     tech="SunPower_5-1",
+    # )
 
 

@@ -200,9 +200,9 @@ def analyze_temperature(dataset_path, model_path, tech):
     print(pd.DataFrame(gammas, index=["gamma_%_per_C", "slope"]).T)
 
 if __name__ == "__main__":
-    analyze_temperature("data/jv_autoencoder_dataset_perovskite.npz", "models/jv_autoencoder_perovskite.pth", tech="Perovskite_5&6")
-    # analyze_temperature(
-    #     "data/jv_autoencoder_dataset_silicon.npz",
-    #     "models/jv_autoencoder_silicon.pth",
-    #     tech="SunPower_5-1",
-    # )
+    # analyze_temperature("data/jv_autoencoder_dataset_perovskite.npz", "models/jv_autoencoder_perovskite.pth", tech="Perovskite_5&6")
+    analyze_temperature(
+        "data/jv_autoencoder_dataset_silicon.npz",
+        "models/jv_autoencoder_silicon.pth",
+        tech="SunPower_5-1",
+    )

@@ -221,7 +221,7 @@ def analyze_irradiance(dataset_path, model_path, tech):
     # =====================================================
     irradiances = np.arange(200, 1100, 100)
 
-    K = 80
+    K = 50
     rng = np.random.default_rng(42)
 
     N = len(jv_in)
@@ -232,6 +232,9 @@ def analyze_irradiance(dataset_path, model_path, tech):
     jmpps_mean, jmpps_std = [], []
     pmpps_mean, pmpps_std = [], []
     ffs_mean, ffs_std = [], []
+    Ios_mean, Ios_std = [], []
+    Iphs_mean, Iphs_std = [], []
+    n_mean, n_std = [], []
     rss_mean, rss_std = [], []
     rshs_mean, rshs_std = [], []
 
@@ -247,6 +250,7 @@ def analyze_irradiance(dataset_path, model_path, tech):
         FF_list = []
         Rs_list = []
         Rsh_list = []
+        Iph_list, Io_list, n_list = [], [], []
 
         for i in idxs:
 
@@ -260,7 +264,7 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
             with torch.no_grad():
 
-                I_pred, _, _, _, diode_pred_norm = model(jv_t, w_t)
+                I_pred,I_phys, delta_I, z, diode_pred_norm = model(jv_t, w_t)
 
             I_pred_np = I_pred.squeeze().cpu().numpy()
 
@@ -272,7 +276,7 @@ def analyze_irradiance(dataset_path, model_path, tech):
             diode = diode_pred_norm.squeeze().cpu().numpy()
             diode = diode * diode_stats["std"] + diode_stats["mean"]
 
-            _, _, _, Rs, Rsh = diode
+            Iph, Io, n, Rs, Rsh = diode
 
             if Rsh < 0:
                 Rsh = -Rsh
@@ -283,6 +287,9 @@ def analyze_irradiance(dataset_path, model_path, tech):
             Jmpp_list.append(Jmpp)
             Pmpp_list.append(Pmpp)
             FF_list.append(FF)
+            Iph_list.append(Iph)
+            Io_list.append(Io)
+            n_list.append(n)
             Rs_list.append(Rs)
             Rsh_list.append(Rsh)
 
@@ -303,6 +310,15 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
         ffs_mean.append(np.nanmean(FF_list))
         ffs_std.append(np.nanstd(FF_list))
+
+        Ios_mean.append(np.nanmean(Io_list))
+        Ios_std.append(np.nanstd(Io_list))
+
+        Iphs_mean.append(np.nanmean(Iph_list))
+        Iphs_std.append(np.nanstd(Iph_list))
+
+        n_mean.append(np.nanmean(n_list))
+        n_std.append(np.nanstd(n_list))
 
         rss_mean.append(np.nanmean(Rs_list))
         rss_std.append(np.nanstd(Rs_list))
@@ -335,6 +351,13 @@ def analyze_irradiance(dataset_path, model_path, tech):
         "FF_mean": ffs_mean,
         "FF_std": ffs_std,
 
+        "Io_mean": Ios_mean,
+        "Io_std": Ios_std,
+        "Iph_mean": Iphs_mean,
+        "Iph_std": Iphs_std,
+        "n_mean": n_mean,
+        "n_std": n_std,
+
         "Rs_mean": rss_mean,
         "Rs_std": rss_std,
 
@@ -364,7 +387,7 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
     P_base = np.array(pmpps_mean)
 
-    compute_sensitivity_scores(P_base, params_dict, output_dir)
+    # compute_sensitivity_scores(P_base, params_dict, output_dir)
 
     gammas = {}
 
@@ -385,6 +408,9 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
     gammas["FF"] = plot_param(irradiances, ffs_mean, ffs_std,
                               "FF","Fill Factor",output_dir/"FF_vs_G.png")
+    gammas["Io"] = plot_param(irradiances, Ios_mean, Ios_std, "Io", "Io (A)", output_dir / "Io_vs_T.png")
+    gammas["Iph"] = plot_param(irradiances, Iphs_mean, Iphs_std, "Iph", "Iph (A)", output_dir / "Iph_vs_T.png")
+    gammas["n"] = plot_param(irradiances, n_mean, n_std, "n", "", output_dir / "n_vs_T.png")
 
     gammas["Rs"] = plot_param(irradiances, rss_mean, rss_std,
                               "Rs","Series Resistance (Ω)",output_dir/"Rs_vs_G.png")
@@ -410,14 +436,14 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
 if __name__ == "__main__":
 
-    analyze_irradiance(
-        "data/jv_autoencoder_dataset_perovskite.npz",
-        "models/jv_autoencoder_perovskite.pth",
-        tech="Perovskite_5&6",
-    )
-
     # analyze_irradiance(
-    #     "data/jv_autoencoder_dataset_silicon.npz",
-    #     "models/jv_autoencoder_silicon.pth",
-    #     tech="SunPower_5-1",
+    #     "data/jv_autoencoder_dataset_perovskite.npz",
+    #     "models/jv_autoencoder_perovskite.pth",
+    #     tech="Perovskite_5&6",
     # )
+
+    analyze_irradiance(
+        "data/jv_autoencoder_dataset_silicon.npz",
+        "models/jv_autoencoder_silicon.pth",
+        tech="SunPower_5-1",
+    )

@@ -67,7 +67,7 @@ def train(
     val_split=0.2,
     latent_dim=64,
     lambda_params=5e-2,
-    lambda_residual=7e-3,
+    lambda_residual=5e-3,
     lambda_latent=1e-5,
 ):
 
@@ -193,7 +193,7 @@ def train(
                 + lambda_params * loss_params
                 + lambda_residual * loss_residual
                 + lambda_latent * loss_latent
-                + 0.03 * loss_phys + 0.01 * loss_rsh_temp
+                + 0.02 * loss_phys
             )
 
             loss.backward()
@@ -280,7 +280,7 @@ def train(
                     + lambda_params * loss_params
                     + lambda_residual * loss_residual
                     + lambda_latent * loss_latent
-                    + 0.03 * loss_phys + 0.01 * loss_rsh_temp
+                    + 0.02 * loss_phys
                 )
 
                 val_loss += loss.item() * jv_in.size(0)
