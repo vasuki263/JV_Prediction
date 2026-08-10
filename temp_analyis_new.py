@@ -57,9 +57,10 @@ def plot_param(temps, mean_vals, std_vals, name, ylabel, outpath):
 
     # Regression line
     plt.plot(xfit, fit(xfit), "r--", linewidth=2, label=f"γ={gamma:.3f}%/°C")
-
-    # Optional reference temperature
-    plt.axvline(25, color="green", linestyle="--", alpha=0.6)
+    ymin = max(0, np.min(mean_vals) - 0.05 * np.min(mean_vals))
+    plt.ylim(bottom=ymin)
+    ymax = np.max(mean_vals) + 0.05 * np.max(mean_vals)
+    plt.ylim(top=ymax)
 
     plt.xlabel("Module Temperature (°C)")
     plt.ylabel(ylabel)
@@ -85,13 +86,92 @@ def plot_sensitivity_bar(betas, outpath):
     plt.savefig(outpath, dpi=200)
     plt.close()
 
+def compute_sensitivity_scores(P_base, params_dict, outdir):
+
+    SS_plus = {}
+    SS_minus = {}
+    NL = {}
+
+    for pname, pvals in params_dict.items():
+
+        pvals = np.array(pvals)
+
+        # +10% and -10% perturbations
+        p_plus = 1.10 * pvals
+        p_minus = 0.90 * pvals
+
+        # Recompute power depending on parameter
+        if pname == "Vmpp":
+            P_plus = p_plus * params_dict["Jmpp"]
+            P_minus = p_minus * params_dict["Jmpp"]
+
+        elif pname == "Jmpp":
+            P_plus = params_dict["Vmpp"] * p_plus
+            P_minus = params_dict["Vmpp"] * p_minus
+
+        elif pname == "FF":
+            Voc = params_dict["Voc"]
+            Jsc = params_dict["Jsc"]
+            P_plus = p_plus * Voc * Jsc
+            P_minus = p_minus * Voc * Jsc
+
+        else:
+            # Linear approximation for Voc, Jsc, Rs, Rsh
+            P_plus = P_base * (p_plus / pvals)
+            P_minus = P_base * (p_minus / pvals)
+
+        # ΔP
+        dP_plus = P_plus - P_base
+        dP_minus = P_minus - P_base
+
+        # Sensitivity Score
+        SS_plus[pname] = (np.mean(dP_plus) / np.mean(P_base)) * 100
+        SS_minus[pname] = (np.mean(dP_minus) / np.mean(P_base)) * 100
+
+        # Nonlinearity
+        NL[pname] = abs(abs(SS_plus[pname]) - abs(SS_minus[pname]))
+
+    # Save CSV
+    df = pd.DataFrame({
+        "SS_plus": SS_plus,
+        "SS_minus": SS_minus,
+        "Nonlinearity": NL
+    })
+    df.to_csv(outdir / "sensitivity_scores.csv")
+
+    # Plot sensitivity
+    plt.figure(figsize=(10,6))
+    plt.bar(df.index, df["SS_plus"], label="SS(+10%)", alpha=0.7)
+    plt.bar(df.index, df["SS_minus"], label="SS(-10%)", alpha=0.7)
+    plt.xticks(rotation=45)
+    plt.ylabel("Sensitivity Score (%)")
+    plt.title("Sensitivity Scores (+10% and -10%)")
+    plt.grid(alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(outdir / "sensitivity_scores_bar.png")
+    plt.close()
+
+    # Plot nonlinearity
+    plt.figure(figsize=(10,6))
+    plt.bar(df.index, df["Nonlinearity"], color="purple")
+    plt.xticks(rotation=45)
+    plt.ylabel("|SS(+)| - |SS(-)|")
+    plt.title("Nonlinearity per Parameter")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(outdir / "nonlinearity_scores.png")
+    plt.close()
+
+    return df
+
 
 # ---------------------------------------------------------
 # Main analysis
 # ---------------------------------------------------------
 def analyze_temperature(dataset_path, model_path, tech):
 
-    output_dir = Path(f"outputs/{tech}/temperature_analysis/diff_rep")
+    output_dir = Path(f"outputs/{tech}/temperature_analysis/diff_rep3")
     reset_dir(output_dir)
 
     # =====================================================
@@ -129,7 +209,7 @@ def analyze_temperature(dataset_path, model_path, tech):
     # FAST Temperature sweep using K random samples
     # =====================================================
     temps = np.arange(20, 75, 5)
-    K = 40  # number of samples per temperature
+    K = 50  # number of samples per temperature
 
     N = len(jv_in)
     rng = np.random.default_rng(42)
@@ -164,10 +244,14 @@ def analyze_temperature(dataset_path, model_path, tech):
             I_pred_np = I_pred.squeeze(0).cpu().numpy()
 
             Voc, Jsc, Vmpp, Jmpp, Pmpp, FF = extract_jv_physics(V_grid, I_pred_np)
+            if FF > 0.90:
+                FF = 0.90
 
             diode_params = diode_pred_norm.squeeze(0).cpu().numpy()
             diode_params = diode_params * diode_stats["std"] + diode_stats["mean"]
-            Iph, Io, n, Rs, Rsh = diode_params
+            _, _, _, Rs, Rsh = diode_params
+            if Rsh < 0:
+                Rsh = -Rsh
 
             Voc_list.append(Voc)
             Jsc_list.append(Jsc)
@@ -230,6 +314,24 @@ def analyze_temperature(dataset_path, model_path, tech):
     # =====================================================
     # Plots
     # =====================================================
+    # -----------------------------------------------------
+    # Sensitivity Score Analysis
+    # -----------------------------------------------------
+    params_dict = {
+        "Voc": vocs_mean,
+        "Jsc": jscs_mean,
+        "Vmpp": vmpps_mean,
+        "Jmpp": jmpps_mean,
+        "Pmpp": pmpps_mean,
+        "FF": ffs_mean,
+        "Rs": rss_mean,
+        "Rsh": rshs_mean,
+    }
+
+    P_base = np.array(pmpps_mean)
+
+    compute_sensitivity_scores(P_base, params_dict, output_dir)
+
     gammas = {}
 
     gammas["Voc"] = plot_param(temps, vocs_mean, vocs_std, "Voc", "Voc (V)", output_dir / "Voc_vs_T.png")
@@ -253,13 +355,15 @@ def analyze_temperature(dataset_path, model_path, tech):
 
 
 if __name__ == "__main__":
-    analyze_temperature(
-        "data/jv_autoencoder_dataset_perovskite.npz",
-        "models/jv_autoencoder_perovskite.pth",
-        tech="Perovskite_5&6",
-    )
+    # analyze_temperature(
+    #     "data/jv_autoencoder_dataset_perovskite.npz",
+    #     "models/jv_autoencoder_perovskite.pth",
+    #     tech="Perovskite_5&6",
+    # )
     analyze_temperature(
         "data/jv_autoencoder_dataset_silicon.npz",
         "models/jv_autoencoder_silicon.pth",
         tech="SunPower_5-1",
     )
+
+

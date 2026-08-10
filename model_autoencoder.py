@@ -71,7 +71,7 @@ class SingleDiodeSolver(nn.Module):
         - (V + I*Rs)/Rsh
     """
 
-    def __init__(self, Ns=1, Vt=0.02585, n_iter=20):
+    def __init__(self, Ns=1, Vt=0.02585, n_iter=40):
         super().__init__()
         self.Ns = Ns
         self.Vt = Vt
@@ -232,19 +232,15 @@ class PhysicsInformedJVModel(nn.Module):
         # -----------------------------
         # Bounded physical parameters
         # -----------------------------
-        # Iph: allow positive up to some reasonable max (e.g. 2 A)
-        # Iph = 2.0 * torch.sigmoid(diode_raw[:, 0])
+        # Iph:
         Iph = diode_raw[:, 0]
-        # # Iph = torch.relu(diode_raw[:, 0])
-        #
-        # # Io: tiny positive range (log-scale)
-        # # Io = torch.exp(torch.clamp(diode_raw[:, 1], min=-30.0, max=-5.0))
-        logIo = diode_raw[:, 1]
-        Io = diode_raw[:, 1]#torch.exp(logIo)
-        # Iph = 3.0 * torch.sigmoid(diode_raw[:, 0])
-        #
-        # logIo = -30 + 25 * torch.sigmoid(diode_raw[:, 1])
+        # Iph = F.softplus(diode_raw[:, 0])
+
+        # logIo = diode_raw[:, 1]
+        Io = diode_raw[:, 1]
+        # Io = F.softplus(diode_raw[:, 1]) + 1e-12
         # Io = torch.exp(logIo)
+
 
         # n: ideality factor in [0.8, 3.0]
         n = 0.8 + 2.2 * torch.sigmoid(diode_raw[:, 2])
@@ -252,10 +248,9 @@ class PhysicsInformedJVModel(nn.Module):
         # Rs: series resistance in [0, 20]
         Rs = 20.0 * torch.sigmoid(diode_raw[:, 3])
 
-        # Rsh: shunt resistance in [10, 1e5]
-        # Rsh = 10.0 + (1e5 - 10.0) * torch.sigmoid(diode_raw[:, 4])
-        # Rsh = 100.0 + (1e5 - 100.0) * torch.sigmoid(diode_raw[:, 4])
+        # Rsh
         Rsh = diode_raw[:, 4]
+        # Rsh = F.softplus(diode_raw[:, 4])
 
         batch_size = jv.shape[0]
         V = self.voltage_grid.unsqueeze(0).expand(batch_size, -1)

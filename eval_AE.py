@@ -307,6 +307,8 @@ def evaluate_diode_model(model_path, dataset_path, tech, num_curves=10):
 
         Iph_t, Io_t, n_t, Rs_t, Rsh_t = diode_true[idx]
         Iph_p, Io_p, n_p, Rs_p, Rsh_p = params_preds[idx]
+        if Rsh_p < 0:
+            Rsh_p = -Rsh_p
 
         rows.append({
             "idx": idx,

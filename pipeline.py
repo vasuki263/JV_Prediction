@@ -121,7 +121,7 @@ def run_pipeline(cfg, args, logger, run_dir):
 
     # AE dataset build (needed for AE train/eval)
     if args.train_ae or args.all:
-        step_ae_dataset(cfg, logger)
+        # step_ae_dataset(cfg, logger)
         step_train_ae(cfg, logger, run_dir)
 
     # AE evaluation

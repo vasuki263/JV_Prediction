@@ -208,7 +208,7 @@ def analyze_irradiance_physics_model(
     tech,
 ):
 
-    output_dir = Path(f"outputs/{tech}/irradiance_analysis_physics")
+    output_dir = Path(f"outputs/{tech}/irradiance_analysis/new_2")
     reset_dir(output_dir)
 
     # =====================================================
@@ -368,11 +368,11 @@ def analyze_irradiance_physics_model(
 
 
 if __name__ == "__main__":
-    analyze_irradiance_physics_model(
-        dataset_path="data/jv_autoencoder_dataset_perovskite.npz",
-        model_path="models/jv_autoencoder_perovskite.pth",
-        tech="Perovskite_5&6",
-    )
+    # analyze_irradiance_physics_model(
+    #     dataset_path="data/jv_autoencoder_dataset_perovskite.npz",
+    #     model_path="models/jv_autoencoder_perovskite.pth",
+    #     tech="Perovskite_5&6",
+    # )
 
     analyze_irradiance_physics_model(
         "data/jv_autoencoder_dataset_silicon.npz",

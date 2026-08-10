@@ -66,8 +66,8 @@ def train(
     epochs=100,
     val_split=0.2,
     latent_dim=64,
-    lambda_params=1e-2,
-    lambda_residual=1e-3,
+    lambda_params=5e-2,
+    lambda_residual=7e-3,
     lambda_latent=1e-5,
 ):
 
@@ -143,13 +143,14 @@ def train(
             I_phys_sorted = I_phys[idx]
             diode_pred_sorted = diode_pred_norm[idx]
 
-            Voc, Jsc, Vmpp, Jmpp, Pmpp, FF = compute_physics_metrics(V_grid, I_pred_sorted)
+            Voc, Jsc, Vmpp, Jmpp, Pmpp, FF = compute_physics_metrics(V_grid, I_pred)
 
             loss_recon = loss_fn_jv(I_pred, jv_tgt)
             loss_params = loss_fn_params(diode_pred_norm, diode_norm)
             loss_residual = (delta_I ** 2).mean()
             loss_latent = (z ** 2).mean()
             loss_phys = loss_fn_jv(I_phys, jv_tgt)
+
 
             # -------------------------
             # Temperature physics losses
@@ -192,7 +193,7 @@ def train(
                 + lambda_params * loss_params
                 + lambda_residual * loss_residual
                 + lambda_latent * loss_latent
-                + 0.2 * loss_phys
+                + 0.03 * loss_phys + 0.01 * loss_rsh_temp
             )
 
             loss.backward()
@@ -233,11 +234,11 @@ def train(
 
                 Voc, Jsc, Vmpp, Jmpp, Pmpp, FF = compute_physics_metrics(V_grid, I_pred_sorted)
 
-                loss_recon = loss_fn_jv(I_pred, jv_tgt)
+                loss_recon = loss_fn_jv(I_pred_sorted, jv_tgt_sorted)
                 loss_params = loss_fn_params(diode_pred_norm, diode_norm)
                 loss_residual = (delta_I ** 2).mean()
                 loss_latent = (z ** 2).mean()
-                loss_phys = loss_fn_jv(I_phys, jv_tgt)
+                loss_phys = loss_fn_jv(I_phys_sorted, jv_tgt_sorted)
                 # -------------------------
                 # Temperature physics losses
                 # -------------------------
@@ -279,7 +280,7 @@ def train(
                     + lambda_params * loss_params
                     + lambda_residual * loss_residual
                     + lambda_latent * loss_latent
-                    + 0.02 * loss_phys
+                    + 0.03 * loss_phys + 0.01 * loss_rsh_temp
                 )
 
                 val_loss += loss.item() * jv_in.size(0)
