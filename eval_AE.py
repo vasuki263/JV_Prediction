@@ -6,6 +6,7 @@ import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter1d
+from jv_analysis import extract_jv_physics
 
 from sklearn.metrics import (
     mean_absolute_error,
@@ -132,181 +133,6 @@ def extract_voc(
     return V[k]
 
 
-# ============================================================
-# JV electrical parameters
-# ============================================================
-def extract_jv_physics(V, I):
-
-    V = np.asarray(V, dtype=float)
-    I = np.asarray(I, dtype=float)
-
-    mask = np.isfinite(V) & np.isfinite(I)
-
-    V = V[mask]
-    I = I[mask]
-
-    if len(V) < 5:
-
-        return (
-            np.nan,
-            np.nan,
-            np.nan,
-            np.nan,
-            np.nan,
-            np.nan,
-        )
-
-    # --------------------------------------------------------
-    # Sort voltage
-    # --------------------------------------------------------
-
-    idx = np.argsort(V)
-
-    V = V[idx]
-    I = I[idx]
-
-    # --------------------------------------------------------
-    # Jsc
-    # --------------------------------------------------------
-
-    Jsc = np.interp(
-        0.0,
-        V,
-        I
-    )
-
-    # --------------------------------------------------------
-    # Voc
-    # --------------------------------------------------------
-
-    Voc = extract_voc(V, I)
-
-    # --------------------------------------------------------
-    # Positive voltage region
-    # --------------------------------------------------------
-
-    mask_vpos = V >= 0
-
-    V_pos = V[mask_vpos]
-    I_pos = I[mask_vpos]
-
-    if len(V_pos) == 0:
-
-        return (
-            Voc,
-            Jsc,
-            np.nan,
-            np.nan,
-            np.nan,
-            np.nan,
-        )
-
-    # --------------------------------------------------------
-    # Power
-    # --------------------------------------------------------
-
-    P = V_pos * I_pos
-
-    P_abs = np.abs(P)
-
-    k = np.argmax(P_abs)
-
-    Vmpp = V_pos[k]
-
-    Jmpp = I_pos[k]
-
-    Pmpp = P_abs[k]
-
-    # --------------------------------------------------------
-    # Fill factor
-    # --------------------------------------------------------
-
-    denom = np.abs(Voc) * np.abs(Jsc)
-
-    if (
-        not np.isfinite(Voc)
-        or not np.isfinite(Jsc)
-        or denom < 1e-12
-    ):
-
-        FF = np.nan
-
-    else:
-
-        FF = Pmpp / denom
-
-    return (
-        Voc,
-        Jsc,
-        Vmpp,
-        Jmpp,
-        Pmpp,
-        FF,
-    )
-#
-# def extract_jv_physics(V, I):
-#
-#     V = np.asarray(V, dtype=float)
-#     I = np.asarray(I, dtype=float)
-#
-#     mask = np.isfinite(V) & np.isfinite(I)
-#     V = V[mask]
-#     I = I[mask]
-#
-#     if len(V) < 5:
-#         return (np.nan, np.nan, np.nan, np.nan, np.nan, np.nan)
-#
-#     idx = np.argsort(V)
-#     V = V[idx]
-#     I = I[idx]
-#
-#     # --------------------------------------------------------
-#     # Normalize current to current density (mA/cm²)
-#     # --------------------------------------------------------
-#     A_device_m2 = 0.7
-#     A_device_cm2 = A_device_m2 * 10000.0
-#     J = (I / A_device_cm2) * 1000.0
-#
-#     # --------------------------------------------------------
-#     # Jsc
-#     # --------------------------------------------------------
-#     Jsc = np.interp(0.0, V, J)
-#
-#     # --------------------------------------------------------
-#     # Voc
-#     # --------------------------------------------------------
-#     Voc = extract_voc(V, I)
-#
-#     # --------------------------------------------------------
-#     # Positive voltage region
-#     # --------------------------------------------------------
-#     # Enforce PV sign convention
-#     J = -np.abs(J)
-#
-#     # Positive voltage region
-#     mask_vpos = V >= 0
-#     V_pos = V[mask_vpos]
-#     J_pos = J[mask_vpos]
-#
-#     # Power density
-#     P = V_pos * J_pos
-#     P_smooth = gaussian_filter1d(P, sigma=1)
-#
-#     k = np.argmax(P_smooth)
-#     Vmpp = V_pos[k]
-#     Jmpp = J_pos[k]
-#     Pmpp = P_smooth[k]
-#
-#     # Fill factor
-#     denom = abs(Voc) * abs(Jsc)
-#
-#
-#     if not np.isfinite(Voc) or not np.isfinite(Jsc) or denom < 1e-12:
-#         FF = np.nan
-#     else:
-#         FF = Pmpp / denom
-#
-#     return (Voc, Jsc, Vmpp, Jmpp, Pmpp, FF)
 
 
 # ============================================================
@@ -912,7 +738,7 @@ def evaluate_diode_model(
             FF_true,
         ) = extract_jv_physics(
             V_grid,
-            jv_true[idx]
+            jv_true[idx], area_m2=1
         )
 
         # ----------------------------------------------------
@@ -928,7 +754,7 @@ def evaluate_diode_model(
             FF_pred,
         ) = extract_jv_physics(
             V_grid,
-            final_preds[idx]
+            final_preds[idx], area_m2=1
         )
 
         # ----------------------------------------------------
