@@ -31,54 +31,72 @@ def irradiance_coeff(x, y):
 # ---------------------------------------------------------
 # Plot helper
 # ---------------------------------------------------------
-def plot_param(irr, mean_vals, std_vals, name, ylabel, outpath):
-
-    mean_vals = np.array(mean_vals)
-    std_vals = np.array(std_vals)
+def plot_param(irr, pred_mean, pred_std, true_mean, true_std, name, ylabel, outpath):
+    mean_vals = np.array(pred_mean)
+    std_vals = np.array(pred_std)
 
     gamma, slope = irradiance_coeff(irr, mean_vals)
 
     z = np.polyfit(irr, mean_vals, 1)
     fit = np.poly1d(z)
+    # ---------------------------------------------------------
+    # Compute gamma for true
+    # ---------------------------------------------------------
+    gamma_true, slope_true = irradiance_coeff(irr, true_mean)
+    fit_true = np.poly1d(np.polyfit(irr, true_mean, 1))
+    xfit = np.linspace(irr.min(), irr.max(), 200)
 
-    xfit = np.linspace(irr.min(), irr.max(), 300)
 
     plt.figure(figsize=(7,5))
 
+    # Error bars
     plt.errorbar(
         irr,
         mean_vals,
         yerr=std_vals,
         fmt="o",
-        color="orange",
+        markersize=6,
         capsize=4,
+        color="orange",
         label=name
     )
 
-    plt.plot(
-        xfit,
-        fit(xfit),
-        "r--",
-        linewidth=2,
-        label=f"γ={gamma:.4f}%/(W/m²)"
+    plt.errorbar(
+        irr,
+        true_mean,
+        yerr=true_std,
+        fmt="s",
+        markersize=6,
+        capsize=4,
+        color="blue",
+        label=f"{name} true (γ={gamma_true:.3f}%/°C)"
     )
+    # Regression line
+    plt.plot(xfit, fit(xfit), "r--", linewidth=2, label=f"γ={gamma:.3f}%/°C")
+    # True regression line
+    plt.plot(xfit, fit_true(xfit), "b--", linewidth=2)
+    # ymin = max(0, np.min(mean_vals) - 0.05 * np.min(mean_vals))
+    # plt.ylim(bottom=ymin)
+    # ymax = np.max(mean_vals) + 0.05 * np.max(mean_vals)
+    # plt.ylim(top=ymax)
+    # Combine both predicted and true values
+    all_vals = np.concatenate([pred_mean, true_mean])
 
-    ymin = max(0, np.min(mean_vals) - 0.05 * np.min(mean_vals))
-    plt.ylim(bottom=ymin)
-    ymax = np.max(mean_vals) + 0.05 * np.max(mean_vals)
-    plt.ylim(top=ymax)
+    ymin = max(0, np.min(all_vals) - 0.05 * np.min(all_vals))
+    ymax = np.max(all_vals) + 0.05 * np.max(all_vals)
+
+    plt.ylim(ymin, ymax)
 
     plt.xlabel("Irradiance (W/m²)")
     plt.ylabel(ylabel)
-
-    plt.grid(alpha=0.3)
+    plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-
     plt.savefig(outpath, dpi=150)
     plt.close()
 
     return gamma, slope
+
 
 
 def plot_sensitivity_bar(betas, outpath):
@@ -182,7 +200,7 @@ def compute_sensitivity_scores(P_base, params_dict, outdir):
 # ---------------------------------------------------------
 def analyze_irradiance(dataset_path, model_path, tech):
 
-    output_dir = Path(f"outputs/{tech}/irradiance_analysis/diff_rep3")
+    output_dir = Path(f"outputs/{tech}/irradiance_analysis/new")
     reset_dir(output_dir)
 
     # =====================================================
@@ -195,6 +213,12 @@ def analyze_irradiance(dataset_path, model_path, tech):
     V_grid = data["V_grid"].astype(np.float32)
 
     diode_stats = data["diode_params_stats"].item()
+    diode_true = data["diode_params"].astype(np.float32)  # shape (5, N)
+    Rs_true_all = diode_true[:, 3]
+    Rsh_true_all = diode_true[:, 4]
+    n_true_all = diode_true[:, 2]
+    Io_true_all = diode_true[:, 1]
+    Iph_true_all = diode_true[:, 0]
 
     # =====================================================
     # Load model
@@ -237,6 +261,25 @@ def analyze_irradiance(dataset_path, model_path, tech):
     n_mean, n_std = [], []
     rss_mean, rss_std = [], []
     rshs_mean, rshs_std = [], []
+    Voc_true_mean, Voc_true_std = [], []
+    Jsc_true_mean, Jsc_true_std = [], []
+    Vmpp_true_mean, Vmpp_true_std = [], []
+
+    Jmpp_true_mean, Jmpp_true_std = [], []
+
+    Pmpp_true_mean, Pmpp_true_std = [], []
+
+    FF_true_mean, FF_true_std = [], []
+
+    Io_true_mean, Io_true_std = [], []
+
+    Iph_true_mean, Iph_true_std = [], []
+
+    n_true_mean, n_true_std = [], []
+
+    Rs_true_mean, Rs_true_std = [], []
+
+    Rsh_true_mean, Rsh_true_std = [], []
 
     for G in irradiances:
 
@@ -251,6 +294,10 @@ def analyze_irradiance(dataset_path, model_path, tech):
         Rs_list = []
         Rsh_list = []
         Iph_list, Io_list, n_list = [], [], []
+
+        Voc_true_list, Jsc_true_list, Vmpp_true_list, Jmpp_true_list = [], [], [], []
+        Pmpp_true_list, FF_true_list = [], []
+        Iph_true_list, Io_true_list, n_true_list, Rs_true_list, Rsh_true_list = [], [], [], [], []
 
         for i in idxs:
 
@@ -273,6 +320,19 @@ def analyze_irradiance(dataset_path, model_path, tech):
                 I_pred_np
             )
 
+            # ---------------------------------------------------------
+            # TRUE JV physics extraction
+            # ---------------------------------------------------------
+            I_true_np = jv_in[i]  # true JV curve
+            Voc_t, Jsc_t, Vmpp_t, Jmpp_t, Pmpp_t, FF_t = extract_jv_physics(V_grid, I_true_np)
+
+            Voc_true_list.append(Voc_t)
+            Jsc_true_list.append(Jsc_t)
+            Vmpp_true_list.append(Vmpp_t)
+            Jmpp_true_list.append(Jmpp_t)
+            Pmpp_true_list.append(Pmpp_t)
+            FF_true_list.append(FF_t)
+
             diode = diode_pred_norm.squeeze().cpu().numpy()
             diode = diode * diode_stats["std"] + diode_stats["mean"]
 
@@ -280,6 +340,18 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
             if Rsh < 0:
                 Rsh = -Rsh
+
+            Rs_t = Rs_true_all[i]
+            Rsh_t = Rsh_true_all[i]
+            n_t = n_true_all[i]
+            Io_t = Io_true_all[i]
+            Iph_t = Iph_true_all[i]
+
+            Rs_true_list.append(Rs_t)
+            Rsh_true_list.append(Rsh_t)
+            n_true_list.append(n_t)
+            Io_true_list.append(Io_t)
+            Iph_true_list.append(Iph_t)
 
             Voc_list.append(Voc)
             Jsc_list.append(Jsc)
@@ -292,6 +364,7 @@ def analyze_irradiance(dataset_path, model_path, tech):
             n_list.append(n)
             Rs_list.append(Rs)
             Rsh_list.append(Rsh)
+
 
         vocs_mean.append(np.nanmean(Voc_list))
         vocs_std.append(np.nanstd(Voc_list))
@@ -325,6 +398,39 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
         rshs_mean.append(np.nanmean(Rsh_list))
         rshs_std.append(np.nanstd(Rsh_list))
+
+        Voc_true_mean.append(np.mean(Voc_true_list))
+        Voc_true_std.append(np.std(Voc_true_list))
+
+        Jsc_true_mean.append(np.mean(Jsc_true_list))
+        Jsc_true_std.append(np.std(Jsc_true_list))
+
+        Vmpp_true_mean.append(np.mean(Vmpp_true_list))
+        Vmpp_true_std.append(np.std(Vmpp_true_list))
+
+        Jmpp_true_mean.append(np.mean(Jmpp_true_list))
+        Jmpp_true_std.append(np.std(Jmpp_true_list))
+
+        Pmpp_true_mean.append(np.mean(Pmpp_true_list))
+        Pmpp_true_std.append(np.std(Pmpp_true_list))
+
+        FF_true_mean.append(np.mean(FF_true_list))
+        FF_true_std.append(np.std(FF_true_list))
+
+        Io_true_mean.append(np.mean(Io_true_list))
+        Io_true_std.append(np.std(Io_true_list))
+
+        Iph_true_mean.append(np.mean(Iph_true_list))
+        Iph_true_std.append(np.std(Iph_true_list))
+
+        n_true_mean.append(np.mean(n_true_list))
+        n_true_std.append(np.std(n_true_list))
+
+        Rs_true_mean.append(np.mean(Rs_true_list))
+        Rs_true_std.append(np.std(Rs_true_list))
+
+        Rsh_true_mean.append(np.mean(Rsh_true_list))
+        Rsh_true_std.append(np.std(Rsh_true_list))
 
     # =====================================================
     # Save CSV
@@ -366,6 +472,30 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
     })
 
+    results["Voc_true_mean"] = Voc_true_mean
+    results["Voc_true_std"] = Voc_true_std
+    results["Jsc_true_mean"] = Jsc_true_mean
+    results["Jsc_true_std"] = Jsc_true_std
+    results["Vmpp_true_mean"] = Vmpp_true_mean
+    results["Vmpp_true_std"] = Vmpp_true_std
+    results["Jmpp_true_mean"] = Jmpp_true_mean
+    results["Jmpp_true_std"] = Jmpp_true_std
+    results["Pmpp_true_mean"] = Pmpp_true_mean
+    results["Pmpp_true_std"] = Pmpp_true_std
+    results["FF_true_mean"] = FF_true_mean
+    results["FF_true_std"] = FF_true_std
+
+    results["Io_true_mean"] = Io_true_mean
+    results["Io_true_std"] = Io_true_std
+    results["Iph_true_mean"] = Iph_true_mean
+    results["Iph_true_std"] = Iph_true_std
+    results["n_true_mean"] = n_true_mean
+    results["n_true_std"] = n_true_std
+    results["Rs_true_mean"] = Rs_true_mean
+    results["Rs_true_std"] = Rs_true_std
+    results["Rsh_true_mean"] = Rsh_true_mean
+    results["Rsh_true_std"] = Rsh_true_std
+
     results.to_csv(output_dir/"irradiance_sweep_mean_std.csv", index=False)
 
     # =====================================================
@@ -391,32 +521,27 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
     gammas = {}
 
-    gammas["Voc"] = plot_param(irradiances, vocs_mean, vocs_std,
-                               "Voc","Voc (V)",output_dir/"Voc_vs_G.png")
-
-    gammas["Jsc"] = plot_param(irradiances, jscs_mean, jscs_std,
-                               "Jsc","Jsc (A)",output_dir/"Jsc_vs_G.png")
-
-    gammas["Vmpp"] = plot_param(irradiances, vmpps_mean, vmpps_std,
-                                "Vmpp","Vmpp (V)",output_dir/"Vmpp_vs_G.png")
-
-    gammas["Jmpp"] = plot_param(irradiances, jmpps_mean, jmpps_std,
-                                "Jmpp","Jmpp (A)",output_dir/"Jmpp_vs_G.png")
-
-    gammas["Pmpp"] = plot_param(irradiances, pmpps_mean, pmpps_std,
-                                "Pmpp","Pmpp (W)",output_dir/"Pmpp_vs_G.png")
-
-    gammas["FF"] = plot_param(irradiances, ffs_mean, ffs_std,
-                              "FF","Fill Factor",output_dir/"FF_vs_G.png")
-    gammas["Io"] = plot_param(irradiances, Ios_mean, Ios_std, "Io", "Io (A)", output_dir / "Io_vs_T.png")
-    gammas["Iph"] = plot_param(irradiances, Iphs_mean, Iphs_std, "Iph", "Iph (A)", output_dir / "Iph_vs_T.png")
-    gammas["n"] = plot_param(irradiances, n_mean, n_std, "n", "", output_dir / "n_vs_T.png")
-
-    gammas["Rs"] = plot_param(irradiances, rss_mean, rss_std,
-                              "Rs","Series Resistance (Ω)",output_dir/"Rs_vs_G.png")
-
-    gammas["Rsh"] = plot_param(irradiances, rshs_mean, rshs_std,
-                               "Rsh","Shunt Resistance (Ω)",output_dir/"Rsh_vs_G.png")
+    gammas["Voc"] = plot_param(irradiances, vocs_mean, vocs_std, Voc_true_mean, Voc_true_std, "Voc", "Voc (V)",
+                               output_dir / "Voc_vs_T.png")
+    gammas["Jsc"] = plot_param(irradiances, jscs_mean, jscs_std, Jsc_true_mean, Jsc_true_std, "Jsc", "Jsc (A)",
+                               output_dir / "Jsc_vs_T.png")
+    gammas["Vmpp"] = plot_param(irradiances, vmpps_mean, vmpps_std, Vmpp_true_mean, Vmpp_true_std, "Vmpp", "Vmpp (V)",
+                                output_dir / "Vmpp_vs_T.png")
+    gammas["Jmpp"] = plot_param(irradiances, jmpps_mean, jmpps_std, Jmpp_true_mean, Jmpp_true_std, "Jmpp", "Jmpp (A)",
+                                output_dir / "Jmpp_vs_T.png")
+    gammas["Pmpp"] = plot_param(irradiances, pmpps_mean, pmpps_std, Pmpp_true_mean, Pmpp_true_std, "Pmpp", "Pmpp (W)",
+                                output_dir / "Pmpp_vs_T.png")
+    gammas["FF"] = plot_param(irradiances, ffs_mean, ffs_std, FF_true_mean, FF_true_mean, "FF", "Fill Factor",
+                              output_dir / "FF_vs_T.png")
+    gammas["Io"] = plot_param(irradiances, Ios_mean, Ios_std, Io_true_mean, Io_true_std, "Io", "Io (A)",
+                              output_dir / "Io_vs_T.png")
+    gammas["Iph"] = plot_param(irradiances, Iphs_mean, Iphs_std, Iph_true_mean, Iph_true_std, "Iph", "Iph (A)",
+                               output_dir / "Iph_vs_T.png")
+    gammas["n"] = plot_param(irradiances, n_mean, n_std, n_true_mean, n_true_std, "n", "", output_dir / "n_vs_T.png")
+    gammas["Rs"] = plot_param(irradiances, rss_mean, rss_std, Rs_true_mean, Rs_true_std, "Rs", "Series Resistance (Ω)",
+                              output_dir / "Rs_vs_T.png")
+    gammas["Rsh"] = plot_param(irradiances, rshs_mean, rshs_std, Rsh_true_mean, Rsh_true_std, "Rsh", "Shunt Resistance (Ω)",
+                               output_dir / "Rsh_vs_T.png")
 
     plot_sensitivity_bar(
         gammas,
@@ -436,14 +561,14 @@ def analyze_irradiance(dataset_path, model_path, tech):
 
 if __name__ == "__main__":
 
-    # analyze_irradiance(
-    #     "data/jv_autoencoder_dataset_perovskite.npz",
-    #     "models/jv_autoencoder_perovskite.pth",
-    #     tech="Perovskite_5&6",
-    # )
-
     analyze_irradiance(
-        "data/jv_autoencoder_dataset_silicon.npz",
-        "models/jv_autoencoder_silicon.pth",
-        tech="SunPower_5-1",
+        "data/jv_autoencoder_dataset_perovskite.npz",
+        "models/jv_autoencoder_perovskite.pth",
+        tech="Perovskite_5&6",
     )
+
+    # analyze_irradiance(
+    #     "data/jv_autoencoder_dataset_silicon.npz",
+    #     "models/jv_autoencoder_silicon.pth",
+    #     tech="SunPower_5-1",
+    # )

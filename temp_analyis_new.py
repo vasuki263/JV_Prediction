@@ -31,15 +31,21 @@ def temp_coeff(x, y):
 # ---------------------------------------------------------
 # Plot helper (with error bars)
 # ---------------------------------------------------------
-def plot_param(temps, mean_vals, std_vals, name, ylabel, outpath):
-    mean_vals = np.array(mean_vals)
-    std_vals = np.array(std_vals)
+def plot_param(temps, pred_mean, pred_std, true_mean, true_std, name, ylabel, outpath):
+    mean_vals = np.array(pred_mean)
+    std_vals = np.array(pred_std)
 
     gamma, slope = temp_coeff(temps, mean_vals)
 
     z = np.polyfit(temps, mean_vals, 1)
     fit = np.poly1d(z)
+    # ---------------------------------------------------------
+    # Compute gamma for true
+    # ---------------------------------------------------------
+    gamma_true, slope_true = temp_coeff(temps, true_mean)
+    fit_true = np.poly1d(np.polyfit(temps, true_mean, 1))
     xfit = np.linspace(temps.min(), temps.max(), 200)
+
 
     plt.figure(figsize=(7,5))
 
@@ -55,12 +61,31 @@ def plot_param(temps, mean_vals, std_vals, name, ylabel, outpath):
         label=name
     )
 
+    plt.errorbar(
+        temps,
+        true_mean,
+        yerr=true_std,
+        fmt="s",
+        markersize=6,
+        capsize=4,
+        color="blue",
+        label=f"{name} true (γ={gamma_true:.3f}%/°C)"
+    )
     # Regression line
     plt.plot(xfit, fit(xfit), "r--", linewidth=2, label=f"γ={gamma:.3f}%/°C")
-    ymin = max(0, np.min(mean_vals) - 0.05 * np.min(mean_vals))
-    plt.ylim(bottom=ymin)
-    ymax = np.max(mean_vals) + 0.05 * np.max(mean_vals)
-    plt.ylim(top=ymax)
+    # True regression line
+    plt.plot(xfit, fit_true(xfit), "b--", linewidth=2)
+    # ymin = max(0, np.min(mean_vals) - 0.05 * np.min(mean_vals))
+    # plt.ylim(bottom=ymin)
+    # ymax = np.max(mean_vals) + 0.05 * np.max(mean_vals)
+    # plt.ylim(top=ymax)
+    # Combine both predicted and true values
+    # all_vals = np.concatenate([pred_mean, true_mean])
+    #
+    # ymin = max(0, np.min(all_vals) - 0.05 * np.min(all_vals))
+    # ymax = np.max(all_vals) + 0.05 * np.max(all_vals)
+    #
+    # plt.ylim(ymin, ymax)
 
     plt.xlabel("Module Temperature (°C)")
     plt.ylabel(ylabel)
@@ -92,7 +117,7 @@ def plot_sensitivity_bar(betas, outpath):
 # ---------------------------------------------------------
 def analyze_temperature(dataset_path, model_path, tech):
 
-    output_dir = Path(f"outputs/{tech}/temperature_analysis/diff_rep2")
+    output_dir = Path(f"outputs/{tech}/temperature_analysis/true_and_pred_2")
     reset_dir(output_dir)
 
     # =====================================================
@@ -105,6 +130,12 @@ def analyze_temperature(dataset_path, model_path, tech):
     V_grid = data["V_grid"].astype(np.float32)
 
     diode_stats = data["diode_params_stats"].item()
+    diode_true = data["diode_params"].astype(np.float32)  # shape (5, N)
+    Rs_true_all = diode_true[:, 3]
+    Rsh_true_all = diode_true[:, 4]
+    n_true_all = diode_true[:, 2]
+    Io_true_all = diode_true[:, 1]
+    Iph_true_all = diode_true[:, 0]
 
     # =====================================================
     # Load model
@@ -132,7 +163,7 @@ def analyze_temperature(dataset_path, model_path, tech):
     temps = np.arange(20, 75, 5)
     # temps = np.linspace(20, 75, 30)
 
-    K = 120  # number of samples per temperature
+    K = 60  # number of samples per temperature
 
     N = len(jv_in)
     rng = np.random.default_rng(42)
@@ -149,12 +180,37 @@ def analyze_temperature(dataset_path, model_path, tech):
     rss_mean, rss_std = [], []
     rshs_mean, rshs_std = [], []
 
+    Voc_true_mean, Voc_true_std = [], []
+    Jsc_true_mean , Jsc_true_std = [], []
+    Vmpp_true_mean, Vmpp_true_std = [], []
+
+    Jmpp_true_mean, Jmpp_true_std = [], []
+
+    Pmpp_true_mean, Pmpp_true_std = [], []
+
+    FF_true_mean, FF_true_std = [], []
+
+    Io_true_mean, Io_true_std = [], []
+
+    Iph_true_mean, Iph_true_std = [], []
+
+    n_true_mean, n_true_std = [], []
+
+    Rs_true_mean, Rs_true_std = [], []
+
+    Rsh_true_mean, Rsh_true_std = [], []
+
+
     for T in temps:
 
         idxs = rng.choice(N, size=K, replace=False)
 
         Voc_list, Jsc_list, Vmpp_list, Jmpp_list, Pmpp_list, FF_list = [], [], [], [], [], []
         Iph_list, Io_list, n_list, Rs_list, Rsh_list = [], [], [], [], []
+
+        Voc_true_list, Jsc_true_list, Vmpp_true_list, Jmpp_true_list = [], [], [], []
+        Pmpp_true_list, FF_true_list = [], []
+        Iph_true_list, Io_true_list, n_true_list, Rs_true_list, Rsh_true_list = [], [], [], [], []
 
         for i in idxs:
 
@@ -173,12 +229,37 @@ def analyze_temperature(dataset_path, model_path, tech):
             if FF > 0.90:
                 FF = 0.90
 
+            # ---------------------------------------------------------
+            # TRUE JV physics extraction
+            # ---------------------------------------------------------
+            I_true_np = jv_in[i]  # true JV curve
+            Voc_t, Jsc_t, Vmpp_t, Jmpp_t, Pmpp_t, FF_t = extract_jv_physics(V_grid, I_true_np)
+
+            Voc_true_list.append(Voc_t)
+            Jsc_true_list.append(Jsc_t)
+            Vmpp_true_list.append(Vmpp_t)
+            Jmpp_true_list.append(Jmpp_t)
+            Pmpp_true_list.append(Pmpp_t)
+            FF_true_list.append(FF_t)
+
             diode_params = diode_pred_norm.squeeze(0).cpu().numpy()
             diode_params = diode_params * diode_stats["std"] + diode_stats["mean"]
             Iph, Io, n, Rs, Rsh = diode_params
 
             if Rsh < 0:
                 Rsh = -Rsh
+
+            Rs_t = Rs_true_all[i]
+            Rsh_t = Rsh_true_all[i]
+            n_t = n_true_all[i]
+            Io_t = Io_true_all[i]
+            Iph_t = Iph_true_all[i]
+
+            Rs_true_list.append(Rs_t)
+            Rsh_true_list.append(Rsh_t)
+            n_true_list.append(n_t)
+            Io_true_list.append(Io_t)
+            Iph_true_list.append(Iph_t)
 
             Voc_list.append(Voc)
             Jsc_list.append(Jsc)
@@ -225,6 +306,39 @@ def analyze_temperature(dataset_path, model_path, tech):
         rshs_mean.append(np.nanmean(Rsh_list))
         rshs_std.append(np.nanstd(Rsh_list))
 
+        Voc_true_mean.append(np.mean(Voc_true_list))
+        Voc_true_std.append(np.std(Voc_true_list))
+
+        Jsc_true_mean.append(np.mean(Jsc_true_list))
+        Jsc_true_std.append(np.std(Jsc_true_list))
+
+        Vmpp_true_mean.append(np.mean(Vmpp_true_list))
+        Vmpp_true_std.append(np.std(Vmpp_true_list))
+
+        Jmpp_true_mean.append(np.mean(Jmpp_true_list))
+        Jmpp_true_std.append(np.std(Jmpp_true_list))
+
+        Pmpp_true_mean.append(np.mean(Pmpp_true_list))
+        Pmpp_true_std.append(np.std(Pmpp_true_list))
+
+        FF_true_mean.append(np.mean(FF_true_list))
+        FF_true_std.append(np.std(FF_true_list))
+
+        Io_true_mean.append(np.mean(Io_true_list))
+        Io_true_std.append(np.std(Io_true_list))
+
+        Iph_true_mean.append(np.mean(Iph_true_list))
+        Iph_true_std.append(np.std(Iph_true_list))
+
+        n_true_mean.append(np.mean(n_true_list))
+        n_true_std.append(np.std(n_true_list))
+
+        Rs_true_mean.append(np.mean(Rs_true_list))
+        Rs_true_std.append(np.std(Rs_true_list))
+
+        Rsh_true_mean.append(np.mean(Rsh_true_list))
+        Rsh_true_std.append(np.std(Rsh_true_list))
+
     # =====================================================
     # Save predictions
     # =====================================================
@@ -254,6 +368,30 @@ def analyze_temperature(dataset_path, model_path, tech):
         "Rsh_std": rshs_std,
     })
 
+    results["Voc_true_mean"] = Voc_true_mean
+    results["Voc_true_std"] = Voc_true_std
+    results["Jsc_true_mean"] = Jsc_true_mean
+    results["Jsc_true_std"] = Jsc_true_std
+    results["Vmpp_true_mean"] = Vmpp_true_mean
+    results["Vmpp_true_std"] = Vmpp_true_std
+    results["Jmpp_true_mean"] = Jmpp_true_mean
+    results["Jmpp_true_std"] = Jmpp_true_std
+    results["Pmpp_true_mean"] = Pmpp_true_mean
+    results["Pmpp_true_std"] = Pmpp_true_std
+    results["FF_true_mean"] = FF_true_mean
+    results["FF_true_std"] = FF_true_std
+
+    results["Io_true_mean"] = Io_true_mean
+    results["Io_true_std"] = Io_true_std
+    results["Iph_true_mean"] = Iph_true_mean
+    results["Iph_true_std"] = Iph_true_std
+    results["n_true_mean"] = n_true_mean
+    results["n_true_std"] = n_true_std
+    results["Rs_true_mean"] = Rs_true_mean
+    results["Rs_true_std"] = Rs_true_std
+    results["Rsh_true_mean"] = Rsh_true_mean
+    results["Rsh_true_std"] = Rsh_true_std
+
     results.to_csv(output_dir / "temperature_sweep_mean_std.csv", index=False)
 
     # =====================================================
@@ -263,17 +401,17 @@ def analyze_temperature(dataset_path, model_path, tech):
 
     gammas = {}
 
-    gammas["Voc"] = plot_param(temps, vocs_mean, vocs_std, "Voc", "Voc (V)", output_dir / "Voc_vs_T.png")
-    gammas["Jsc"] = plot_param(temps, jscs_mean, jscs_std, "Jsc", "Jsc (A)", output_dir / "Jsc_vs_T.png")
-    gammas["Vmpp"] = plot_param(temps, vmpps_mean, vmpps_std, "Vmpp", "Vmpp (V)", output_dir / "Vmpp_vs_T.png")
-    gammas["Jmpp"] = plot_param(temps, jmpps_mean, jmpps_std, "Jmpp", "Jmpp (A)", output_dir / "Jmpp_vs_T.png")
-    gammas["Pmpp"] = plot_param(temps, pmpps_mean, pmpps_std, "Pmpp", "Pmpp (W)", output_dir / "Pmpp_vs_T.png")
-    gammas["FF"] = plot_param(temps, ffs_mean, ffs_std, "FF", "Fill Factor", output_dir / "FF_vs_T.png")
-    gammas["Io"] = plot_param(temps, Ios_mean, Ios_std, "Io", "Io (A)", output_dir / "Io_vs_T.png")
-    gammas["Iph"] = plot_param(temps, Iphs_mean, Iphs_std, "Iph", "Iph (A)", output_dir / "Iph_vs_T.png")
-    gammas["n"] = plot_param(temps, n_mean, n_std, "n", "", output_dir / "n_vs_T.png")
-    gammas["Rs"] = plot_param(temps, rss_mean, rss_std, "Rs", "Series Resistance (Ω)", output_dir / "Rs_vs_T.png")
-    gammas["Rsh"] = plot_param(temps, rshs_mean, rshs_std, "Rsh", "Shunt Resistance (Ω)", output_dir / "Rsh_vs_T.png")
+    gammas["Voc"] = plot_param(temps, vocs_mean, vocs_std, Voc_true_mean, Voc_true_std, "Voc", "Voc (V)", output_dir / "Voc_vs_T.png")
+    gammas["Jsc"] = plot_param(temps, jscs_mean, jscs_std, Jsc_true_mean, Jsc_true_std, "Jsc", "Jsc (A)", output_dir / "Jsc_vs_T.png")
+    gammas["Vmpp"] = plot_param(temps, vmpps_mean, vmpps_std, Vmpp_true_mean, Vmpp_true_std, "Vmpp", "Vmpp (V)", output_dir / "Vmpp_vs_T.png")
+    gammas["Jmpp"] = plot_param(temps, jmpps_mean, jmpps_std, Jmpp_true_mean, Jmpp_true_std, "Jmpp", "Jmpp (A)", output_dir / "Jmpp_vs_T.png")
+    gammas["Pmpp"] = plot_param(temps, pmpps_mean, pmpps_std, Pmpp_true_mean, Pmpp_true_std, "Pmpp", "Pmpp (W)", output_dir / "Pmpp_vs_T.png")
+    gammas["FF"] = plot_param(temps, ffs_mean, ffs_std, FF_true_mean, FF_true_mean, "FF", "Fill Factor", output_dir / "FF_vs_T.png")
+    gammas["Io"] = plot_param(temps, Ios_mean, Ios_std, Io_true_mean, Io_true_std, "Io", "Io (A)", output_dir / "Io_vs_T.png")
+    gammas["Iph"] = plot_param(temps, Iphs_mean, Iphs_std, Iph_true_mean, Iph_true_std, "Iph", "Iph (A)", output_dir / "Iph_vs_T.png")
+    gammas["n"] = plot_param(temps, n_mean, n_std, n_true_mean, n_true_std, "n", "", output_dir / "n_vs_T.png")
+    gammas["Rs"] = plot_param(temps, rss_mean, rss_std, Rs_true_mean, Rs_true_std, "Rs", "Series Resistance (Ω)", output_dir / "Rs_vs_T.png")
+    gammas["Rsh"] = plot_param(temps, rshs_mean, rshs_std, Rsh_true_mean, Rsh_true_std, "Rsh", "Shunt Resistance (Ω)", output_dir / "Rsh_vs_T.png")
 
     plot_sensitivity_bar(gammas, output_dir / "temp_sensitivity_bar.png")
 
@@ -296,5 +434,4 @@ if __name__ == "__main__":
     #     "models/jv_autoencoder_silicon.pth",
     #     tech="SunPower_5-1",
     # )
-
 

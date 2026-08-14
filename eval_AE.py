@@ -1,132 +1,340 @@
 import os
 import shutil
+
 import numpy as np
-import torch
 import pandas as pd
+import torch
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from scipy.ndimage import gaussian_filter1d
 
-from model_autoencoder import PhysicsInformedJVModel
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+)
+
+from model_autoencoder import (
+    PhysicsInformedJVModel
+)
 
 
-# ---------------------------------------------------------
-# Utility
-# ---------------------------------------------------------
+# ============================================================
+# Directory utilities
+# ============================================================
+
 def reset_dir(path):
+
     if os.path.exists(path):
         shutil.rmtree(path)
-    os.makedirs(path, exist_ok=True)
+
+    os.makedirs(
+        path,
+        exist_ok=True
+    )
 
 
-# ---------------------------------------------------------
-# Robust Voc extraction
-# ---------------------------------------------------------
-def extract_voc(V, I):
-    V = np.asarray(V, float)
-    I = np.asarray(I, float)
+# ============================================================
+# Voc
+# ============================================================
 
-    # If all currents are negative → Voc near highest V
-    if np.all(I < 0):
-        k = np.argmin(np.abs(I))
-        return V[k]
+def extract_voc(
+    V,
+    I
+):
 
-    # If all currents are positive → Voc near lowest V
-    if np.all(I > 0):
-        k = np.argmin(np.abs(I))
-        return V[k]
+    V = np.asarray(
+        V,
+        dtype=float
+    )
 
-    # Look for zero crossing between points
-    for k in range(len(I) - 1):
-        if (I[k] <= 0 and I[k+1] >= 0) or (I[k] >= 0 and I[k+1] <= 0):
-            return np.interp(0.0, [I[k], I[k+1]], [V[k], V[k+1]])
+    I = np.asarray(
+        I,
+        dtype=float
+    )
 
-    # Fallback: nearest-to-zero current
-    k = np.argmin(np.abs(I))
+    # --------------------------------------------------------
+    # Sort
+    # --------------------------------------------------------
+
+    idx = np.argsort(V)
+
+    V = V[idx]
+    I = I[idx]
+
+    # --------------------------------------------------------
+    # Remove invalid
+    # --------------------------------------------------------
+
+    mask = (
+        np.isfinite(V)
+        & np.isfinite(I)
+    )
+
+    V = V[mask]
+    I = I[mask]
+
+    if len(V) < 2:
+        return np.nan
+
+    # --------------------------------------------------------
+    # Exact zero
+    # --------------------------------------------------------
+
+    zero_idx = np.where(
+        np.isclose(
+            I,
+            0.0,
+            atol=1e-10
+        )
+    )[0]
+
+    if len(zero_idx) > 0:
+        return V[
+            zero_idx[0]
+        ]
+
+    # --------------------------------------------------------
+    # Zero crossing
+    # --------------------------------------------------------
+
+    for k in range(
+        len(I) - 1
+    ):
+
+        if (
+            I[k] <= 0
+            and I[k + 1] >= 0
+        ) or (
+            I[k] >= 0
+            and I[k + 1] <= 0
+        ):
+
+            return np.interp(
+                0.0,
+                [
+                    I[k],
+                    I[k + 1]
+                ],
+                [
+                    V[k],
+                    V[k + 1]
+                ]
+            )
+
+    # --------------------------------------------------------
+    # Fallback
+    # --------------------------------------------------------
+
+    k = np.argmin(
+        np.abs(I)
+    )
+
     return V[k]
 
 
-# ---------------------------------------------------------
-# JV physics extraction
-# ---------------------------------------------------------
+# ============================================================
+# JV electrical parameters
+# ============================================================
 def extract_jv_physics(V, I):
-    V = np.asarray(V, float)
-    I = np.asarray(I, float)
+
+    V = np.asarray(V, dtype=float)
+    I = np.asarray(I, dtype=float)
 
     mask = np.isfinite(V) & np.isfinite(I)
+
     V = V[mask]
     I = I[mask]
 
     if len(V) < 5:
-        return np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
+
+        return (
+            np.nan,
+            np.nan,
+            np.nan,
+            np.nan,
+            np.nan,
+            np.nan,
+        )
+
+    # --------------------------------------------------------
+    # Sort voltage
+    # --------------------------------------------------------
 
     idx = np.argsort(V)
+
     V = V[idx]
     I = I[idx]
 
+    # --------------------------------------------------------
     # Jsc
-    Jsc = np.interp(0.0, V, I)
+    # --------------------------------------------------------
 
+    Jsc = np.interp(
+        0.0,
+        V,
+        I
+    )
+
+    # --------------------------------------------------------
     # Voc
+    # --------------------------------------------------------
+
     Voc = extract_voc(V, I)
 
-    # Use only V >= 0 region
+    # --------------------------------------------------------
+    # Positive voltage region
+    # --------------------------------------------------------
+
     mask_vpos = V >= 0
+
     V_pos = V[mask_vpos]
     I_pos = I[mask_vpos]
 
     if len(V_pos) == 0:
-        return Voc, Jsc, np.nan, np.nan, np.nan, np.nan
 
-    # Power (absolute, since current is often negative)
+        return (
+            Voc,
+            Jsc,
+            np.nan,
+            np.nan,
+            np.nan,
+            np.nan,
+        )
+
+    # --------------------------------------------------------
+    # Power
+    # --------------------------------------------------------
+
     P = V_pos * I_pos
+
     P_abs = np.abs(P)
 
     k = np.argmax(P_abs)
 
     Vmpp = V_pos[k]
+
     Jmpp = I_pos[k]
+
     Pmpp = P_abs[k]
 
-    # FF = Pmpp / (np.abs(Voc) * np.abs(Jsc) + 1e-12)
-    denom = Voc * Jsc
+    # --------------------------------------------------------
+    # Fill factor
+    # --------------------------------------------------------
+
+    denom = np.abs(Voc) * np.abs(Jsc)
 
     if (
-            np.isnan(Voc)
-            or np.isnan(Jsc)
-            or abs(denom) < 1e-8
+        not np.isfinite(Voc)
+        or not np.isfinite(Jsc)
+        or denom < 1e-12
     ):
+
         FF = np.nan
+
     else:
+
         FF = Pmpp / denom
 
-    return Voc, Jsc, Vmpp, Jmpp, Pmpp, FF
+    return (
+        Voc,
+        Jsc,
+        Vmpp,
+        Jmpp,
+        Pmpp,
+        FF,
+    )
+#
+# def extract_jv_physics(V, I):
+#
+#     V = np.asarray(V, dtype=float)
+#     I = np.asarray(I, dtype=float)
+#
+#     mask = np.isfinite(V) & np.isfinite(I)
+#     V = V[mask]
+#     I = I[mask]
+#
+#     if len(V) < 5:
+#         return (np.nan, np.nan, np.nan, np.nan, np.nan, np.nan)
+#
+#     idx = np.argsort(V)
+#     V = V[idx]
+#     I = I[idx]
+#
+#     # --------------------------------------------------------
+#     # Normalize current to current density (mA/cm²)
+#     # --------------------------------------------------------
+#     A_device_m2 = 0.7
+#     A_device_cm2 = A_device_m2 * 10000.0
+#     J = (I / A_device_cm2) * 1000.0
+#
+#     # --------------------------------------------------------
+#     # Jsc
+#     # --------------------------------------------------------
+#     Jsc = np.interp(0.0, V, J)
+#
+#     # --------------------------------------------------------
+#     # Voc
+#     # --------------------------------------------------------
+#     Voc = extract_voc(V, I)
+#
+#     # --------------------------------------------------------
+#     # Positive voltage region
+#     # --------------------------------------------------------
+#     # Enforce PV sign convention
+#     J = -np.abs(J)
+#
+#     # Positive voltage region
+#     mask_vpos = V >= 0
+#     V_pos = V[mask_vpos]
+#     J_pos = J[mask_vpos]
+#
+#     # Power density
+#     P = V_pos * J_pos
+#     P_smooth = gaussian_filter1d(P, sigma=1)
+#
+#     k = np.argmax(P_smooth)
+#     Vmpp = V_pos[k]
+#     Jmpp = J_pos[k]
+#     Pmpp = P_smooth[k]
+#
+#     # Fill factor
+#     denom = abs(Voc) * abs(Jsc)
+#
+#
+#     if not np.isfinite(Voc) or not np.isfinite(Jsc) or denom < 1e-12:
+#         FF = np.nan
+#     else:
+#         FF = Pmpp / denom
+#
+#     return (Voc, Jsc, Vmpp, Jmpp, Pmpp, FF)
 
-# ---------------------------------------------------------
-# Unnormalize diode parameters
-# ---------------------------------------------------------
-def unnormalize_params(params_norm, stats):
-    return params_norm * stats["std"] + stats["mean"]
 
+# ============================================================
+# Regression metrics
+# ============================================================
 
-# ---------------------------------------------------------
-# Error metrics
-# ---------------------------------------------------------
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+def compute_error_metrics(true, pred, param_name=None):
 
-def compute_error_metrics(true, pred):
-    """
-    Computes regression metrics while ignoring NaNs.
-    """
+    true = np.asarray(
+        true,
+        dtype=float
+    )
 
-    true = np.asarray(true, dtype=float)
-    pred = np.asarray(pred, dtype=float)
+    pred = np.asarray(
+        pred,
+        dtype=float
+    )
 
-    mask = np.isfinite(true) & np.isfinite(pred)
+    mask = (
+        np.isfinite(true)
+        & np.isfinite(pred)
+    )
 
     true = true[mask]
     pred = pred[mask]
 
     if len(true) == 0:
+
         return {
             "MAE": np.nan,
             "RMSE": np.nan,
@@ -136,352 +344,1195 @@ def compute_error_metrics(true, pred):
             "PearsonR": np.nan,
         }
 
-    mae = mean_absolute_error(true, pred)
-    rmse = np.sqrt(mean_squared_error(true, pred))
+    mae = mean_absolute_error(
+        true,
+        pred
+    )
+
+    rmse = np.sqrt(
+        mean_squared_error(
+            true,
+            pred
+        )
+    )
+
+    # --------------------------------------------------------
+    # MAPE
+    #
+    # Avoid division by values close to zero.
+    # This is especially important for Voc/Io/FF.
+    # --------------------------------------------------------
+
+    scale = np.maximum(
+        np.abs(true),
+        1e-6
+    )
+
+    mape = np.mean(
+        np.abs(
+            (true - pred)
+            / scale
+        )
+    ) * 100.0
+
+    # --------------------------------------------------------
+    # NRMSE
+    # --------------------------------------------------------
+
+    data_range = (
+        np.max(true)
+        - np.min(true)
+    )
+
+    if data_range > 1e-12:
+
+        nrmse = (
+            rmse
+            / data_range
+        )
+
+    else:
+
+        nrmse = np.nan
+
+    # --------------------------------------------------------
+    # R2
+    # --------------------------------------------------------
+    # --------------------------------------------------------
+    # R2 (scale all parameters except Voc, Rs, Rsh)
+    # --------------------------------------------------------
 
     if len(true) > 1:
-        r2 = r2_score(true, pred)
-        pearson = np.corrcoef(true, pred)[0, 1]
+
+        # Scale unless parameter has meaningful physical units
+        if param_name not in ["Voc", "Rs", "Rsh"]:
+            t_min = np.min(true)
+            t_max = np.max(true)
+
+            if t_max - t_min > 1e-12:
+                true_scaled = (true - t_min) / (t_max - t_min)
+                pred_scaled = (pred - t_min) / (t_max - t_min)
+            else:
+                true_scaled = true.copy()
+                pred_scaled = pred.copy()
+        else:
+            true_scaled = true
+            pred_scaled = pred
+
+        try:
+            r2 = r2_score(true_scaled, pred_scaled)
+        except Exception:
+            r2 = np.nan
+
+        try:
+            if np.std(true_scaled) > 1e-12 and np.std(pred_scaled) > 1e-12:
+                pearson = np.corrcoef(true_scaled, pred_scaled)[0, 1]
+            else:
+                pearson = np.nan
+        except Exception:
+            pearson = np.nan
+
     else:
         r2 = np.nan
         pearson = np.nan
 
-    mape = np.mean(
-        np.abs((true - pred) / (true + 1e-8))
-    ) * 100
-
-    nrmse = rmse / (true.max() - true.min() + 1e-12)
-
     return {
+
         "MAE": mae,
+
         "RMSE": rmse,
+
         "MAPE": mape,
+
         "NRMSE": nrmse,
+
         "R2": r2,
+
         "PearsonR": pearson,
     }
 
 
-# ---------------------------------------------------------
-# Plot electrical parameters
-# ---------------------------------------------------------
-def plot_electrical_params(df, params_true, params_pred, out_dir):
+# ============================================================
+# Plot parameter comparison
+# ============================================================
 
-    os.makedirs(out_dir, exist_ok=True)
+def plot_parameter_comparison(
+    name,
+    true,
+    pred,
+    out_dir
+):
 
-    metrics = {
-        "Voc": ("Voc_true", "Voc_pred"),
-        "Jsc": ("Jsc_true", "Jsc_pred"),
-        "Vmpp": ("Vmpp_true", "Vmpp_pred"),
-        "Impp": ("Jmpp_true", "Jmpp_pred"),
-        "FF": ("FF_true", "FF_pred"),
-        "Rs": (params_true[:, 3], params_pred[:, 3]),
-        "Rsh": (params_true[:, 4], params_pred[:, 4]),
-    }
+    mask = (
+        np.isfinite(true)
+        & np.isfinite(pred)
+    )
 
-    for name, cols in metrics.items():
+    true = true[mask]
+    pred = pred[mask]
 
-        if isinstance(cols[0], str):
-            true = df[cols[0]].values
-            pred = df[cols[1]].values
-        else:
-            true = cols[0]
-            pred = cols[1]
+    if len(true) == 0:
+        return
 
-        err = pred - true
+    # --------------------------------------------------------
+    # Scatter
+    # --------------------------------------------------------
 
-        # Scatter
-        plt.figure(figsize=(6, 5))
-        plt.scatter(true, pred, alpha=0.6, edgecolor="k")
-        lims = [min(true.min(), pred.min()), max(true.max(), pred.max())]
-        plt.plot(lims, lims, "r--", label="Ideal")
-        plt.xlabel(f"True {name}")
-        plt.ylabel(f"Predicted {name}")
-        plt.title(f"{name}: True vs Predicted")
-        plt.grid(alpha=0.3)
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, f"{name}_scatter.png"), dpi=200)
-        plt.close()
+    plt.figure(
+        figsize=(6, 5)
+    )
 
-        # Error histogram
-        plt.figure(figsize=(6, 5))
-        plt.hist(err, bins=40, alpha=0.7, color="steelblue")
-        plt.axvline(0, color="r", linestyle="--")
-        plt.xlabel(f"{name} Error (pred - true)")
-        plt.ylabel("Count")
-        plt.title(f"{name} Error Distribution")
-        plt.grid(alpha=0.3)
-        plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, f"{name}_error_hist.png"), dpi=200)
-        plt.close()
+    plt.scatter(
+        true,
+        pred,
+        alpha=0.6,
+        edgecolor="k"
+    )
+
+    lo = min(
+        true.min(),
+        pred.min()
+    )
+
+    hi = max(
+        true.max(),
+        pred.max()
+    )
+
+    plt.plot(
+        [lo, hi],
+        [lo, hi],
+        "r--",
+        label="Ideal"
+    )
+
+    plt.xlabel(
+        f"Fitted {name}"
+    )
+
+    plt.ylabel(
+        f"Predicted {name}"
+    )
+
+    plt.title(
+        f"{name}: Fitted vs Predicted"
+    )
+
+    plt.grid(
+        alpha=0.3
+    )
+
+    plt.legend()
+
+    plt.tight_layout()
+
+    plt.savefig(
+        os.path.join(
+            out_dir,
+            f"{name}_scatter.png"
+        ),
+        dpi=200
+    )
+
+    plt.close()
+
+    # --------------------------------------------------------
+    # Error histogram
+    # --------------------------------------------------------
+
+    error = (
+        pred
+        - true
+    )
+
+    plt.figure(
+        figsize=(6, 5)
+    )
+
+    plt.hist(
+        error,
+        bins=40,
+        alpha=0.7
+    )
+
+    plt.axvline(
+        0,
+        color="r",
+        linestyle="--"
+    )
+
+    plt.xlabel(
+        f"{name} Error "
+        "(predicted - fitted)"
+    )
+
+    plt.ylabel(
+        "Count"
+    )
+
+    plt.title(
+        f"{name} Error Distribution"
+    )
+
+    plt.grid(
+        alpha=0.3
+    )
+
+    plt.tight_layout()
+
+    plt.savefig(
+        os.path.join(
+            out_dir,
+            f"{name}_error_hist.png"
+        ),
+        dpi=200
+    )
+
+    plt.close()
 
 
-# ---------------------------------------------------------
+# ============================================================
 # Main evaluation
-# ---------------------------------------------------------
-def evaluate_diode_model(model_path, dataset_path, tech, num_curves=10):
+# ============================================================
 
-    base_dir = f"outputs/{tech}/ae/physics"
-    curve_dir = os.path.join(base_dir, "curves")
-    metrics_dir = os.path.join(base_dir, "metrics")
+def evaluate_diode_model(
 
-    reset_dir(base_dir)
-    reset_dir(curve_dir)
-    reset_dir(metrics_dir)
+    model_path,
 
+    dataset_path,
+
+    tech,
+
+    num_curves=10,
+):
+
+    base_dir = (
+        f"outputs/{tech}/ae/physics/final"
+    )
+
+    curve_dir = os.path.join(
+        base_dir,
+        "curves"
+    )
+
+    metrics_dir = os.path.join(
+        base_dir,
+        "metrics"
+    )
+
+    parameter_dir = os.path.join(
+        base_dir,
+        "diode_parameters"
+    )
+
+    reset_dir(
+        base_dir
+    )
+
+    reset_dir(
+        curve_dir
+    )
+
+    reset_dir(
+        metrics_dir
+    )
+
+    reset_dir(
+        parameter_dir
+    )
+
+    # ========================================================
     # Load dataset
-    data = np.load(dataset_path, allow_pickle=True)
+    # ========================================================
 
-    jv_in = data["jv_input"].astype(np.float32)
-    jv_tgt = data["jv_target"].astype(np.float32)
-    weather = data["weather"].astype(np.float32)
-    V_grid = data["V_grid"].astype(np.float32)
+    data = np.load(
+        dataset_path,
+        allow_pickle=True
+    )
 
-    diode_true_norm = data["diode_params_norm"].astype(np.float32)
-    diode_stats = data["diode_params_stats"].item()
+    jv_true = (
+        data["jv_target"]
+        .astype(np.float32)
+    )
 
-    # Load model
-    ckpt = torch.load(model_path, map_location="cpu")
+    weather = (
+        data["weather"]
+        .astype(np.float32)
+    )
+
+    V_grid = (
+        data["V_grid"]
+        .astype(np.float32)
+    )
+
+    # --------------------------------------------------------
+    # Fitted diode parameters
+    # --------------------------------------------------------
+
+    if "diode_params" in data:
+
+        diode_true = (
+            data["diode_params"]
+            .astype(np.float32)
+        )
+
+    else:
+
+        raise KeyError(
+            "Dataset must contain "
+            "'diode_params'."
+        )
+
+    # ========================================================
+    # Load checkpoint
+    # ========================================================
+
+    device = (
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
+
+    checkpoint = torch.load(
+        model_path,
+        map_location=device
+    )
+
+    # ========================================================
+    # Construct model
+    # ========================================================
 
     model = PhysicsInformedJVModel(
-        jv_dim=jv_in.shape[1],
-        weather_dim=weather.shape[1],
-        voltage_grid=V_grid,
-        latent_dim=ckpt["latent_dim"],
-        diode_mean=ckpt["diode_mean"],
-        diode_std=ckpt["diode_std"],
+
+        jv_dim=checkpoint["jv_dim"],
+
+        weather_dim=checkpoint["weather_dim"],
+
+        voltage_grid=checkpoint["V_grid"],
+
+        latent_dim=checkpoint["latent_dim"],
+
+        diode_mean=checkpoint[
+            "diode_mean"
+        ],
+
+        diode_std=checkpoint[
+            "diode_std"
+        ],
+
+    ).to(device)
+
+    model.load_state_dict(
+        checkpoint[
+            "model_state_dict"
+        ]
     )
 
-    model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model.to(device)
+    # ========================================================
+    # Prediction containers
+    # ========================================================
 
-    preds = []
-    params_preds = []
+    final_preds = []
 
-    curve_rmse = []
-    curve_mae = []
+    physics_preds = []
 
-    # Inference
-    with torch.no_grad():
-        for jv, w in zip(jv_in, weather):
+    residual_preds = []
 
-            jv_t = torch.tensor(jv, dtype=torch.float32, device=device).unsqueeze(0)
-            w_t = torch.tensor(w, dtype=torch.float32, device=device).unsqueeze(0)
+    diode_preds_norm = []
 
-            I_pred, I_phys, delta_I, z, diode_pred_norm = model(jv_t, w_t)
+    # ========================================================
+    # Batch inference
+    # ========================================================
 
-            preds.append(I_pred.squeeze(0).cpu().numpy())
-
-            params_pred = unnormalize_params(
-                diode_pred_norm.squeeze(0).cpu().numpy(),
-                diode_stats
-            )
-            params_preds.append(params_pred)
-
-    preds = np.array(preds, dtype=np.float32)
-    params_preds = np.array(params_preds, dtype=np.float32)
-
-    diode_true = unnormalize_params(diode_true_norm, diode_stats)
-
-    # Compute physics metrics
-    rows = []
-    for idx in range(len(preds)):
-
-        J_true = jv_tgt[idx]
-        J_pred = preds[idx]
-
-        curve_rmse.append(
-            np.sqrt(np.mean((J_true - J_pred) ** 2))
-        )
-
-        curve_mae.append(
-            np.mean(np.abs(J_true - J_pred))
-        )
-
-        Voc_t, Jsc_t, Vmpp_t, Jmpp_t, Pmpp_t, FF_t = extract_jv_physics(V_grid, J_true)
-        Voc_p, Jsc_p, Vmpp_p, Jmpp_p, Pmpp_p, FF_p = extract_jv_physics(V_grid, J_pred)
-
-        Iph_t, Io_t, n_t, Rs_t, Rsh_t = diode_true[idx]
-        Iph_p, Io_p, n_p, Rs_p, Rsh_p = params_preds[idx]
-        if Rsh_p < 0:
-            Rsh_p = -Rsh_p
-
-        rows.append({
-            "idx": idx,
-            "Voc_true": Voc_t,
-            "Voc_pred": Voc_p,
-            "Jsc_true": Jsc_t,
-            "Jsc_pred": Jsc_p,
-            "Vmpp_true": Vmpp_t,
-            "Vmpp_pred": Vmpp_p,
-            "Jmpp_true": Jmpp_t,
-            "Jmpp_pred": Jmpp_p,
-            "Pmpp_true": Pmpp_t,
-            "Pmpp_pred": Pmpp_p,
-            "FF_true": FF_t,
-            "FF_pred": FF_p,
-            "Rs_true": Rs_t,
-            "Rs_pred": Rs_p,
-            "Rsh_true": Rsh_t,
-            "Rsh_pred": Rsh_p,
-        })
-
-    df = pd.DataFrame(rows)
-    df.to_csv(os.path.join(metrics_dir, "jv_predictions_with_diode_params.csv"), index=False)
-
-    # Save curves
-    np.savez(
-        os.path.join(metrics_dir, "curves.npz"),
-        V=V_grid,
-        J_true=jv_tgt,
-        J_pred=preds,
-        diode_true=diode_true,
-        diode_pred=params_preds,
+    weather_tensor = torch.tensor(
+        weather,
+        dtype=torch.float32,
+        device=device
     )
 
-    # Plot JV curves
-    plot_dir = os.path.join(curve_dir, "plots")
-    os.makedirs(plot_dir, exist_ok=True)
+    with torch.no_grad():
 
-    N = min(num_curves, len(preds))
+        (
+            final_pred,
+            physics_pred,
+            residual_pred,
+            z,
+            diode_pred_norm,
+        ) = model(
+            weather_tensor
+        )
+
+    final_preds = (
+        final_pred
+        .cpu()
+        .numpy()
+        .astype(np.float32)
+    )
+
+    physics_preds = (
+        physics_pred
+        .cpu()
+        .numpy()
+        .astype(np.float32)
+    )
+
+    residual_preds = (
+        residual_pred
+        .cpu()
+        .numpy()
+        .astype(np.float32)
+    )
+
+    diode_preds_norm = (
+        diode_pred_norm
+        .cpu()
+        .numpy()
+        .astype(np.float32)
+    )
+
+    # ========================================================
+    # Unnormalize diode predictions
+    # ========================================================
+
+    diode_mean = np.asarray(
+        checkpoint[
+            "diode_mean"
+        ],
+        dtype=np.float32
+    )
+
+    diode_std = np.asarray(
+        checkpoint[
+            "diode_std"
+        ],
+        dtype=np.float32
+    )
+
+    diode_preds = (
+        diode_preds_norm
+        * diode_std
+        + diode_mean
+    )
+
+    # ========================================================
+    # TRUE JV RESIDUAL
+    #
+    # This is the quantity the neural residual should learn.
+    #
+    # measured JV
+    #       -
+    # predicted single-diode JV
+    # ========================================================
+
+    true_jv_residual = (
+        jv_true
+        - physics_preds
+    )
+
+    # ========================================================
+    # Curve-level metrics
+    # ========================================================
+
+    final_curve_rmse = np.sqrt(
+        np.mean(
+            (
+                jv_true
+                - final_preds
+            ) ** 2,
+            axis=1
+        )
+    )
+
+    final_curve_mae = np.mean(
+        np.abs(
+            jv_true
+            - final_preds
+        ),
+        axis=1
+    )
+
+    physics_curve_rmse = np.sqrt(
+        np.mean(
+            (
+                jv_true
+                - physics_preds
+            ) ** 2,
+            axis=1
+        )
+    )
+
+    physics_curve_mae = np.mean(
+        np.abs(
+            jv_true
+            - physics_preds
+        ),
+        axis=1
+    )
+
+    residual_curve_rmse = np.sqrt(
+        np.mean(
+            (
+                true_jv_residual
+                - residual_preds
+            ) ** 2,
+            axis=1
+        )
+    )
+
+    residual_curve_mae = np.mean(
+        np.abs(
+            true_jv_residual
+            - residual_preds
+        ),
+        axis=1
+    )
+
+    # ========================================================
+    # Electrical parameters from JV curves ONLY
+    # ========================================================
+
+    rows = []
+
+    for idx in range(
+        len(jv_true)
+    ):
+
+        # ----------------------------------------------------
+        # Measured JV
+        # ----------------------------------------------------
+
+        (
+            Voc_true,
+            Jsc_true,
+            Vmpp_true,
+            Jmpp_true,
+            Pmpp_true,
+            FF_true,
+        ) = extract_jv_physics(
+            V_grid,
+            jv_true[idx]
+        )
+
+        # ----------------------------------------------------
+        # Final predicted JV
+        # ----------------------------------------------------
+
+        (
+            Voc_pred,
+            Jsc_pred,
+            Vmpp_pred,
+            Jmpp_pred,
+            Pmpp_pred,
+            FF_pred,
+        ) = extract_jv_physics(
+            V_grid,
+            final_preds[idx]
+        )
+
+        # ----------------------------------------------------
+        # Store
+        # ----------------------------------------------------
+
+        row = {
+
+            "idx": idx,
+
+            # JV
+            "Final_JV_RMSE":
+                final_curve_rmse[idx],
+
+            "Final_JV_MAE":
+                final_curve_mae[idx],
+
+            "Physics_JV_RMSE":
+                physics_curve_rmse[idx],
+
+            "Physics_JV_MAE":
+                physics_curve_mae[idx],
+
+            "Residual_RMSE":
+                residual_curve_rmse[idx],
+
+            "Residual_MAE":
+                residual_curve_mae[idx],
+
+            # Electrical parameters
+            "Voc_true":
+                Voc_true,
+
+            "Voc_pred":
+                Voc_pred,
+
+            "Jsc_true":
+                Jsc_true,
+
+            "Jsc_pred":
+                Jsc_pred,
+
+            "Vmpp_true":
+                Vmpp_true,
+
+            "Vmpp_pred":
+                Vmpp_pred,
+
+            "Jmpp_true":
+                Jmpp_true,
+
+            "Jmpp_pred":
+                Jmpp_pred,
+
+            "Pmpp_true":
+                Pmpp_true,
+
+            "Pmpp_pred":
+                Pmpp_pred,
+
+            "FF_true":
+                FF_true,
+
+            "FF_pred":
+                FF_pred,
+
+            # Fitted diode parameters
+            "Iph_fitted":
+                diode_true[idx, 0],
+
+            "Iph_pred":
+                diode_preds[idx, 0],
+
+            "Io_fitted":
+                diode_true[idx, 1],
+
+            "Io_pred":
+                diode_preds[idx, 1],
+
+            "n_fitted":
+                diode_true[idx, 2],
+
+            "n_pred":
+                diode_preds[idx, 2],
+
+            "Rs_fitted":
+                diode_true[idx, 3],
+
+            "Rs_pred":
+                diode_preds[idx, 3],
+
+            "Rsh_fitted":
+                diode_true[idx, 4],
+
+            "Rsh_pred":
+                diode_preds[idx, 4],
+        }
+
+        rows.append(
+            row
+        )
+
+    df = pd.DataFrame(
+        rows
+    )
+
+    # ========================================================
+    # Save detailed results
+    # ========================================================
+
+    df.to_csv(
+        os.path.join(
+            metrics_dir,
+            "predictions.csv"
+        ),
+        index=False
+    )
+
+    # ========================================================
+    # Save curves
+    # ========================================================
+
+    np.savez(
+        os.path.join(
+            metrics_dir,
+            "curves.npz"
+        ),
+
+        V=V_grid,
+
+        J_true=jv_true,
+
+        J_pred=final_preds,
+
+        J_physics=physics_preds,
+
+        J_residual_true=true_jv_residual,
+
+        J_residual_pred=residual_preds,
+
+        diode_true=diode_true,
+
+        diode_pred=diode_preds,
+    )
+
+    # ========================================================
+    # JV plots
+    # ========================================================
+
+    plot_dir = os.path.join(
+        curve_dir,
+        "plots"
+    )
+
+    os.makedirs(
+        plot_dir,
+        exist_ok=True
+    )
+
+    N = min(
+        num_curves,
+        len(final_preds)
+    )
+
     for idx in range(N):
-        plt.figure(figsize=(6, 5))
-        plt.plot(V_grid, jv_tgt[idx], label="True JV", linewidth=2)
-        plt.plot(V_grid, preds[idx], "--", label="Pred JV", linewidth=2)
-        plt.xlabel("Voltage (V)")
-        plt.ylabel("Current (A)")
-        plt.title(f"JV Curve {idx}")
-        plt.grid(alpha=0.3)
+
+        plt.figure(
+            figsize=(7, 5)
+        )
+
+        plt.plot(
+            V_grid,
+            jv_true[idx],
+            label="Measured JV",
+            linewidth=2
+        )
+
+        plt.plot(
+            V_grid,
+            physics_preds[idx],
+            "--",
+            label="Single-Diode JV",
+            linewidth=2
+        )
+
+        plt.plot(
+            V_grid,
+            final_preds[idx],
+            "-.",
+            label="Final JV",
+            linewidth=2
+        )
+
+        plt.xlabel(
+            "Voltage (V)"
+        )
+
+        plt.ylabel(
+            "Current (A)"
+        )
+
+        plt.title(
+            f"JV Curve {idx}"
+        )
+
+        plt.grid(
+            alpha=0.3
+        )
+
         plt.legend()
-        plt.savefig(os.path.join(plot_dir, f"jv_{idx:04d}.png"), dpi=200)
+
+        plt.tight_layout()
+
+        plt.savefig(
+            os.path.join(
+                plot_dir,
+                f"jv_{idx:04d}.png"
+            ),
+            dpi=200
+        )
+
         plt.close()
 
-    # ---------------------------------------------------------
-    # Plot electrical parameter comparisons
-    # ---------------------------------------------------------
-    plot_electrical_params(
-        df=df,
-        params_true=diode_true,
-        params_pred=params_preds,
-        out_dir=os.path.join(base_dir, "electrical_param_plots")
+    # ========================================================
+    # Residual plots
+    # ========================================================
+
+    residual_plot_dir = os.path.join(
+        curve_dir,
+        "residuals"
     )
 
-    # ---------------------------------------------------------
-    # Compute error metrics for all parameters
-    # ---------------------------------------------------------
+    os.makedirs(
+        residual_plot_dir,
+        exist_ok=True
+    )
+
+    for idx in range(N):
+
+        plt.figure(
+            figsize=(7, 5)
+        )
+
+        plt.plot(
+            V_grid,
+            true_jv_residual[idx],
+            label="True JV residual",
+            linewidth=2
+        )
+
+        plt.plot(
+            V_grid,
+            residual_preds[idx],
+            "--",
+            label="Predicted JV residual",
+            linewidth=2
+        )
+
+        plt.xlabel(
+            "Voltage (V)"
+        )
+
+        plt.ylabel(
+            "Current residual (A)"
+        )
+
+        plt.title(
+            f"JV Residual {idx}"
+        )
+
+        plt.grid(
+            alpha=0.3
+        )
+
+        plt.legend()
+
+        plt.tight_layout()
+
+        plt.savefig(
+            os.path.join(
+                residual_plot_dir,
+                f"residual_{idx:04d}.png"
+            ),
+            dpi=200
+        )
+
+        plt.close()
+
+
     error_metrics = {
 
-    "Voc":
-        compute_error_metrics(
-            df["Voc_true"],
-            df["Voc_pred"]
-        ),
+        "Final JV Curve":
+            compute_error_metrics(
+                jv_true.flatten(),
+                final_preds.flatten()
+            ),
 
-    "Jsc":
-        compute_error_metrics(
-            df["Jsc_true"],
-            df["Jsc_pred"]
-        ),
+        "Single-Diode Physics":
+            compute_error_metrics(
+                jv_true.flatten(),
+                physics_preds.flatten()
+            ),
 
-    "Vmpp":
-        compute_error_metrics(
-            df["Vmpp_true"],
-            df["Vmpp_pred"]
-        ),
+        "Diode JV Residual":
+            compute_error_metrics(
+                true_jv_residual.flatten(),
+                residual_preds.flatten()
+            ),
 
-    "Impp":
-        compute_error_metrics(
-            df["Jmpp_true"],
-            df["Jmpp_pred"]
-        ),
+        "Voc":
+            compute_error_metrics(df["Voc_true"], df["Voc_pred"], param_name="Voc"),
 
-    "FF":
-        compute_error_metrics(
-            df["FF_true"],
-            df["FF_pred"]
-        ),
+        "Jsc":
+            compute_error_metrics(df["Jsc_true"], df["Jsc_pred"], param_name="Jsc"),
 
-    "Rs":
-        compute_error_metrics(
-            diode_true[:,3],
-            params_preds[:,3]
-        ),
+        "Vmpp":
+            compute_error_metrics(df["Vmpp_true"], df["Vmpp_pred"], param_name="Vmpp"),
 
-    "Rsh":
-        compute_error_metrics(
-            diode_true[:,4],
-            params_preds[:,4]
-        ),
+        "Jmpp":
+            compute_error_metrics(df["Jmpp_true"], df["Jmpp_pred"], param_name="Jmpp"),
 
-    "Curve RMSE":
-        {
-            "MAE": np.mean(curve_mae),
-            "RMSE": np.mean(curve_rmse),
-            "MAPE": np.nan,
-            "NRMSE": np.nan,
-            "R2": np.nan,
-            "PearsonR": np.nan,
-        }
-}
+        "Pmpp":
+            compute_error_metrics(df["Pmpp_true"], df["Pmpp_pred"], param_name="Pmpp"),
 
-    metrics_out = []
+        "FF":
+            compute_error_metrics(df["FF_true"], df["FF_pred"], param_name="FF"),
 
-    for name, m in error_metrics.items():
-        metrics_out.append({
+        # ----------------------------------------------------
+        # Diode parameter supervision
+        #
+        # These compare directly against fitted parameters.
+        # ----------------------------------------------------
 
-            "Parameter": name,
+        "Iph":
+            compute_error_metrics(diode_true[:,0], diode_preds[:,0], param_name="Iph"),
 
-            "MAE": m["MAE"],
+        "Io":
+            compute_error_metrics(diode_true[:,1], diode_preds[:,1], param_name="Io"),
 
-            "RMSE": m["RMSE"],
+        "n":
+            compute_error_metrics(diode_true[:,2], diode_preds[:,2], param_name="n"),
 
-            "MAPE (%)": m["MAPE"],
+        "Rs":
+            compute_error_metrics(diode_true[:,3], diode_preds[:,3], param_name="Rs"),
 
-            "NRMSE": m["NRMSE"],
+        "Rsh":
+            compute_error_metrics(diode_true[:, 4], diode_preds[:, 4], param_name="Rsh")
+    }
 
-            "R2": m["R2"],
+    # ========================================================
+    # Mean curve metrics
+    # ========================================================
 
-            "PearsonR": m["PearsonR"]
+    error_metrics[
+        "Final JV RMSE mean"
+    ] = {
 
+        "MAE":
+            np.mean(
+                final_curve_mae
+            ),
+
+        "RMSE":
+            np.mean(
+                final_curve_rmse
+            ),
+
+        "MAPE":
+            np.nan,
+
+        "NRMSE":
+            np.nan,
+
+        "R2":
+            np.nan,
+
+        "PearsonR":
+            np.nan,
+    }
+
+    error_metrics[
+        "Physics JV RMSE mean"
+    ] = {
+
+        "MAE":
+            np.mean(
+                physics_curve_mae
+            ),
+
+        "RMSE":
+            np.mean(
+                physics_curve_rmse
+            ),
+
+        "MAPE":
+            np.nan,
+
+        "NRMSE":
+            np.nan,
+
+        "R2":
+            np.nan,
+
+        "PearsonR":
+            np.nan,
+    }
+
+    error_metrics[
+        "Residual RMSE mean"
+    ] = {
+
+        "MAE":
+            np.mean(
+                residual_curve_mae
+            ),
+
+        "RMSE":
+            np.mean(
+                residual_curve_rmse
+            ),
+
+        "MAPE":
+            np.nan,
+
+        "NRMSE":
+            np.nan,
+
+        "R2":
+            np.nan,
+
+        "PearsonR":
+            np.nan,
+    }
+
+    # ========================================================
+    # Convert to DataFrame
+    # ========================================================
+
+    metrics_rows = []
+
+    for name, metrics in (
+        error_metrics.items()
+    ):
+
+        metrics_rows.append({
+
+            "Parameter":
+                name,
+
+            "MAE":
+                metrics["MAE"],
+
+            "RMSE":
+                metrics["RMSE"],
+
+            "MAPE":
+                metrics["MAPE"],
+
+            "NRMSE":
+                metrics["NRMSE"],
+
+            "R2":
+                metrics["R2"],
+
+            "PearsonR":
+                metrics["PearsonR"],
         })
 
-    metrics_df = pd.DataFrame(metrics_out)
-    metrics_df.to_csv(os.path.join(metrics_dir, "error_metrics.csv"), index=False)
+    metrics_df = pd.DataFrame(
+        metrics_rows
+    )
 
-    print("\n=== Error Metrics ===")
-    print(metrics_df)
+    metrics_df.to_csv(
+        os.path.join(
+            metrics_dir,
+            "error_metrics.csv"
+        ),
+        index=False
+    )
 
-    print(f"Evaluation complete → {base_dir}")
+    # ========================================================
+    # Diode parameter plots
+    # ========================================================
 
-    return preds, df
+    diode_names = [
+        "Iph",
+        "Io",
+        "n",
+        "Rs",
+        "Rsh",
+    ]
+
+    for k, name in enumerate(
+        diode_names
+    ):
+
+        plot_parameter_comparison(
+
+            name=name,
+
+            true=diode_true[:, k],
+
+            pred=diode_preds[:, k],
+
+            out_dir=parameter_dir,
+        )
+
+    # ========================================================
+    # Print
+    # ========================================================
+
+    print(
+        "\n=== Error Metrics ==="
+    )
+
+    print(
+        metrics_df.to_string(
+            index=False
+        )
+    )
+
+    print(
+        "\n=== Mean Absolute JV Residual Error ==="
+    )
+
+    print(
+        np.mean(
+            residual_curve_mae
+        )
+    )
+
+    print(
+        f"\nEvaluation complete → "
+        f"{base_dir}"
+    )
+
+    return (
+        final_preds,
+        physics_preds,
+        residual_preds,
+        diode_preds,
+        df,
+    )
 
 
-# ---------------------------------------------------------
+# ============================================================
 # Main
-# ---------------------------------------------------------
+# ============================================================
+
 if __name__ == "__main__":
+
     import argparse
 
-    parser = argparse.ArgumentParser(description="Evaluate JV Autoencoder")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Evaluate Physics-Informed JV Model"
+        )
+    )
 
-    parser.add_argument("--tech", type=str, required=True,
-                        help="Technology name (e.g., SunPower_5-1 or Perovskite_5&6)")
-    parser.add_argument("--model-path", type=str, required=True,
-                        help="Path to AE model .pth file")
-    parser.add_argument("--dataset-path", type=str, required=True,
-                        help="Path to AE dataset .npz file")
-    parser.add_argument("--num-curves", type=int, default=10,
-                        help="Number of JV curves to plot")
+    parser.add_argument(
+        "--tech",
+        type=str,
+        required=True,
+        help=(
+            "Technology name"
+        )
+    )
+
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        required=True,
+        help=(
+            "Path to trained model"
+        )
+    )
+
+    parser.add_argument(
+        "--dataset-path",
+        type=str,
+        required=True,
+        help=(
+            "Path to dataset"
+        )
+    )
+
+    parser.add_argument(
+        "--num-curves",
+        type=int,
+        default=10,
+        help=(
+            "Number of curves to plot"
+        )
+    )
 
     args = parser.parse_args()
 
-    preds, df = evaluate_diode_model(
+    evaluate_diode_model(
+
         model_path=args.model_path,
+
         dataset_path=args.dataset_path,
+
         tech=args.tech,
-        num_curves=args.num_curves
+
+        num_curves=args.num_curves,
     )
