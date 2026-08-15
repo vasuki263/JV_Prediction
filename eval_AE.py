@@ -354,7 +354,7 @@ def evaluate_diode_model(
 ):
 
     base_dir = (
-        f"outputs/{tech}/ae/physics/test_new"
+        f"outputs/{tech}/ae/eval_outputs"
     )
 
     curve_dir = os.path.join(

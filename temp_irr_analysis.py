@@ -33,7 +33,22 @@ ELECTRICAL_PARAMS = [
 
 ALL_PARAMS = DIODE_PARAMS + ELECTRICAL_PARAMS
 
-
+def get_units(parameter):
+    units = {
+        "Voc": "V",
+        "Jsc": "A/m²",
+        "Vmpp": "V",
+        "Jmpp": "A/m²",
+        "Pmpp": "W/m²",
+        "FF": "",
+        "Iph": "A",
+        "Io": "A",
+        "n": "",
+        "Rs": "Ω",
+        "Rsh": "Ω",
+    }
+    unit = units.get(parameter, "")
+    return f"{parameter} [{unit}]" if unit else parameter
 
 # ============================================================
 # Load model
@@ -214,12 +229,12 @@ def generate_predictions(
 
         true_values = extract_jv_physics(
             V_grid,
-            jv_true[i], area_m2=1
+            jv_true[i], area_m2=0.7
         )
 
         pred_values = extract_jv_physics(
             V_grid,
-            I_pred[i], area_m2=1
+            I_pred[i], area_m2=0.7
         )
 
         electrical_true.append(
@@ -491,9 +506,10 @@ def plot_surface(
             "Fitted / True Response Surface"
         )
 
-        zlabel = (
-            f"{parameter} true"
-        )
+        # zlabel = (
+        #     f"{parameter} true"
+        # )
+        zlabel = get_units(parameter)
 
     elif value_type == "pred":
 
@@ -502,9 +518,10 @@ def plot_surface(
             "Predicted Response Surface"
         )
 
-        zlabel = (
-            f"{parameter} predicted"
-        )
+        # zlabel = (
+        #     f"{parameter} predicted"
+        # )
+        zlabel = get_units(parameter)
 
     else:
 
@@ -513,9 +530,10 @@ def plot_surface(
             "Prediction Error Surface"
         )
 
-        zlabel = (
-            f"{parameter} error"
-        )
+        # zlabel = (
+        #     f"{parameter} error"
+        # )
+        zlabel = get_units(parameter)
 
     ax.set_zlabel(
         zlabel
@@ -985,7 +1003,7 @@ def run_level4_analysis(
     base_dir = os.path.join(
         output_root,
         tech,
-        "test_op"
+        "temp_irr_analysis"
     )
 
     surface_dir = os.path.join(
@@ -1225,7 +1243,7 @@ def run_level4_analysis(
     )
 
     print(
-        "Level 4 response-surface analysis complete"
+        "Temp Irradiance response-surface analysis complete"
     )
 
     print(
@@ -1245,7 +1263,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         description=(
-            "Level 4: Analyze predicted diode and "
+            "Analyze predicted diode and "
             "electrical parameters as functions of "
             "module temperature and irradiance."
         )
