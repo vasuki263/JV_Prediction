@@ -145,9 +145,9 @@ def train(
     # Loss weights
     # --------------------------------------------------------
 
-    lambda_phys=0.02,
+    lambda_phys=0.1,
 
-    lambda_diode=0.020,
+    lambda_diode=0.20,
 
     lambda_residual=1e-3,
 
@@ -378,9 +378,14 @@ def train(
                 - diode_true_norm
             )
 
-            loss_diode_residual = (
-                diode_residual ** 2
-            ).mean()
+            # loss_diode_residual = (
+            #     diode_residual ** 2
+            # ).mean()
+            # 3. DIODE PARAMETER LOSS (Huber / SmoothL1)
+            loss_diode_residual = torch.nn.functional.huber_loss(
+                diode_pred_norm,
+                diode_true_norm, delta=1.0
+            )
 
             # =================================================
             # 4. JV RESIDUAL REGULARIZATION
@@ -542,15 +547,11 @@ def train(
                 # ------------------------------------------------
                 # Diode residual
                 # ------------------------------------------------
-
-                diode_residual = (
-                    diode_pred_norm
-                    - diode_true_norm
+                #  DIODE PARAMETER LOSS (Huber / SmoothL1)
+                loss_diode_residual = torch.nn.functional.huber_loss(
+                    diode_pred_norm,
+                    diode_true_norm
                 )
-
-                loss_diode_residual = (
-                    diode_residual ** 2
-                ).mean()
 
                 # ------------------------------------------------
                 # Residual regularization
@@ -641,40 +642,9 @@ def train(
         )
 
         print(
-            f"  Train JV       : {train_jv:.6f}"
-        )
-
-        print(
-            f"  Train physics  : {train_phys:.6f}"
-        )
-
-        print(
-            f"  Train diode    : {train_diode:.6f}"
-        )
-
-        print(
-            f"  Train residual : {train_residual:.6f}"
-        )
-
-        print(
             f"  Val total      : {val_total:.6f}"
         )
 
-        print(
-            f"  Val JV         : {val_jv:.6f}"
-        )
-
-        print(
-            f"  Val physics    : {val_phys:.6f}"
-        )
-
-        print(
-            f"  Val diode      : {val_diode:.6f}"
-        )
-
-        print(
-            f"  Val residual   : {val_residual:.6f}"
-        )
 
         # ====================================================
         # Save best model

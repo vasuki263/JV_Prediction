@@ -186,12 +186,13 @@ def extract_jv_physics(
     # MPP region
     # --------------------------------------------------------
 
-    mask_vpos = V >= 0
+    # --------------------------------------------------------
+    # MPP region
+    # --------------------------------------------------------
 
-    V_pos = V[mask_vpos]
-    J_pos = J[mask_vpos]
+    Voc_abs = abs(Voc)
 
-    if len(V_pos) == 0:
+    if not np.isfinite(Voc_abs):
         return (
             Voc,
             Jsc,
@@ -201,25 +202,35 @@ def extract_jv_physics(
             np.nan,
         )
 
-    # --------------------------------------------------------
-    # Electrical power density
-    #
-    # P = V * J
-    #
-    # [V] * [A/m²] = [W/m²]
-    #
-    # We use absolute power because the JV sign convention
-    # may represent photovoltaic current as negative.
-    # --------------------------------------------------------
+    # Only search inside the physical PV operating region
+    mask_mpp = (
+            (V >= 0)
+            & (V <= Voc_abs)
+    )
 
-    P = V_pos * J_pos
+    V_mpp_region = V[mask_mpp]
+    J_mpp_region = J[mask_mpp]
 
+    if len(V_mpp_region) < 2:
+        return (
+            Voc,
+            Jsc,
+            np.nan,
+            np.nan,
+            np.nan,
+            np.nan,
+        )
+
+    P = V_mpp_region * J_mpp_region
+
+    # If your JV convention gives negative photovoltaic current,
+    # use absolute power.
     P_abs = np.abs(P)
 
     k = np.argmax(P_abs)
 
-    Vmpp = V_pos[k]
-    Jmpp = J_pos[k]
+    Vmpp = V_mpp_region[k]
+    Jmpp = J_mpp_region[k]
     Pmpp = P_abs[k]
 
     # --------------------------------------------------------
@@ -242,6 +253,11 @@ def extract_jv_physics(
 
     else:
         FF = Pmpp / denom
+
+    # # Physical sanity check
+    # if FF < 0 or FF > 1.0:
+    #     FF = np.nan
+    FF = np.clip(FF, 0, 1)
 
     return (
         Voc,

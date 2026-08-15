@@ -448,6 +448,11 @@ def plot_surface(
         projection="3d"
     )
 
+    ax.set_zlim(
+        np.nanmin(z),
+        np.nanmax(z)
+    )
+
     surface = ax.plot_surface(
         X,
         Y,
@@ -980,7 +985,7 @@ def run_level4_analysis(
     base_dir = os.path.join(
         output_root,
         tech,
-        "level4_response_surfaces"
+        "test_op"
     )
 
     surface_dir = os.path.join(

@@ -33,107 +33,28 @@ def reset_dir(path):
         exist_ok=True
     )
 
+# ========================================================
+# Smooth JV curves for visualization ONLY
+# ========================================================
 
-# ============================================================
-# Voc
-# ============================================================
+def smooth_jv_curve(current, sigma=2.0):
+    """
+    Smooth JV curve for plotting only.
 
-def extract_voc(
-    V,
-    I
-):
+    The original current data is NOT modified.
+    This function should not be used before electrical
+    parameter extraction or metric calculation.
+    """
+    current = np.asarray(current, dtype=float)
 
-    V = np.asarray(
-        V,
-        dtype=float
+    if len(current) < 5:
+        return current
+
+    return gaussian_filter1d(
+        current,
+        sigma=sigma,
+        mode="nearest"
     )
-
-    I = np.asarray(
-        I,
-        dtype=float
-    )
-
-    # --------------------------------------------------------
-    # Sort
-    # --------------------------------------------------------
-
-    idx = np.argsort(V)
-
-    V = V[idx]
-    I = I[idx]
-
-    # --------------------------------------------------------
-    # Remove invalid
-    # --------------------------------------------------------
-
-    mask = (
-        np.isfinite(V)
-        & np.isfinite(I)
-    )
-
-    V = V[mask]
-    I = I[mask]
-
-    if len(V) < 2:
-        return np.nan
-
-    # --------------------------------------------------------
-    # Exact zero
-    # --------------------------------------------------------
-
-    zero_idx = np.where(
-        np.isclose(
-            I,
-            0.0,
-            atol=1e-10
-        )
-    )[0]
-
-    if len(zero_idx) > 0:
-        return V[
-            zero_idx[0]
-        ]
-
-    # --------------------------------------------------------
-    # Zero crossing
-    # --------------------------------------------------------
-
-    for k in range(
-        len(I) - 1
-    ):
-
-        if (
-            I[k] <= 0
-            and I[k + 1] >= 0
-        ) or (
-            I[k] >= 0
-            and I[k + 1] <= 0
-        ):
-
-            return np.interp(
-                0.0,
-                [
-                    I[k],
-                    I[k + 1]
-                ],
-                [
-                    V[k],
-                    V[k + 1]
-                ]
-            )
-
-    # --------------------------------------------------------
-    # Fallback
-    # --------------------------------------------------------
-
-    k = np.argmin(
-        np.abs(I)
-    )
-
-    return V[k]
-
-
-
 
 # ============================================================
 # Regression metrics
@@ -433,7 +354,7 @@ def evaluate_diode_model(
 ):
 
     base_dir = (
-        f"outputs/{tech}/ae/physics/final"
+        f"outputs/{tech}/ae/physics/test_new"
     )
 
     curve_dir = os.path.join(
@@ -901,7 +822,7 @@ def evaluate_diode_model(
     )
 
     # ========================================================
-    # JV plots
+    # JV plots: TRUE vs PREDICTED only
     # ========================================================
 
     plot_dir = os.path.join(
@@ -920,6 +841,30 @@ def evaluate_diode_model(
     )
 
     for idx in range(N):
+        # ----------------------------------------------------
+        # Original curves
+        # ----------------------------------------------------
+
+        true_curve = jv_true[idx]
+        pred_curve = final_preds[idx]
+
+        # ----------------------------------------------------
+        # Smooth ONLY for visualization
+        # ----------------------------------------------------
+
+        true_smooth = smooth_jv_curve(
+            true_curve,
+            sigma=8.0
+        )
+
+        pred_smooth = smooth_jv_curve(
+            pred_curve,
+            sigma=8.0
+        )
+
+        # ----------------------------------------------------
+        # Plot
+        # ----------------------------------------------------
 
         plt.figure(
             figsize=(7, 5)
@@ -927,44 +872,45 @@ def evaluate_diode_model(
 
         plt.plot(
             V_grid,
-            jv_true[idx],
-            label="Measured JV",
-            linewidth=2
+            true_smooth,
+            label="True JV",
+            linewidth=2.5
         )
 
         plt.plot(
             V_grid,
-            physics_preds[idx],
+            pred_smooth,
             "--",
-            label="Single-Diode JV",
-            linewidth=2
+            label="Predicted JV",
+            linewidth=2.5
         )
 
-        plt.plot(
-            V_grid,
-            final_preds[idx],
-            "-.",
-            label="Final JV",
-            linewidth=2
-        )
+        # ----------------------------------------------------
+        # Labels
+        # ----------------------------------------------------
 
         plt.xlabel(
-            "Voltage (V)"
+            "Voltage (V)",
+            fontsize=12
         )
 
         plt.ylabel(
-            "Current (A)"
+            "Current (A)",
+            fontsize=12
         )
 
         plt.title(
-            f"JV Curve {idx}"
+            f"JV Curve {idx}",
+            fontsize=13
         )
 
         plt.grid(
-            alpha=0.3
+            alpha=0.25
         )
 
-        plt.legend()
+        plt.legend(
+            frameon=True
+        )
 
         plt.tight_layout()
 
@@ -973,7 +919,8 @@ def evaluate_diode_model(
                 plot_dir,
                 f"jv_{idx:04d}.png"
             ),
-            dpi=200
+            dpi=300,
+            bbox_inches="tight"
         )
 
         plt.close()
