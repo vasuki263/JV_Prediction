@@ -215,6 +215,7 @@ def get_s3_keys_from_influx(tech):
       |> range(start: -365d)
       |> filter(fn: (r) => r["_measurement"] == "jv_measurements")
       |> filter(fn: (r) => r["panel_name"] == "{tech}")
+      |> filter(fn: (r) => r["sepiv"] == "SEPIV3")
       |> filter(fn: (r) => r["_field"] == "s3_bucket" or r["_field"] == "s3_object_key")
     """
 

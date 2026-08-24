@@ -1,3 +1,4 @@
+
 import os
 import argparse
 import numpy as np
@@ -355,7 +356,89 @@ def build_dataframe(
 
     return pd.DataFrame(rows)
 
+def fit_plane(df, parameter, value_type):
+    """
+    Fit a plane:
 
+        z = a*T + b*G + c
+
+    where:
+        T = temperature
+        G = irradiance
+        z = parameter value
+
+    Returns:
+        a, b, c, R2, RMSE, MAE
+    """
+
+    x = df["temperature"].values
+    y = df["irradiance"].values
+    z = df[f"{parameter}_{value_type}"].values
+
+    mask = (
+        np.isfinite(x)
+        & np.isfinite(y)
+        & np.isfinite(z)
+    )
+
+    x = x[mask]
+    y = y[mask]
+    z = z[mask]
+
+    if len(x) < 3:
+        return None
+
+    # Design matrix
+    A = np.column_stack([
+        x,
+        y,
+        np.ones_like(x)
+    ])
+
+    # Least-squares plane fit
+    coefficients, _, _, _ = np.linalg.lstsq(
+        A,
+        z,
+        rcond=None
+    )
+
+    a, b, c = coefficients
+
+    # Predictions from fitted plane
+    z_fit = a * x + b * y + c
+
+    # Metrics
+    residuals = z - z_fit
+
+    ss_res = np.sum(residuals ** 2)
+    ss_tot = np.sum(
+        (z - np.mean(z)) ** 2
+    )
+
+    if ss_tot > 0:
+        r_squared = 1 - ss_res / ss_tot
+    else:
+        r_squared = np.nan
+
+    rmse = np.sqrt(
+        np.mean(residuals ** 2)
+    )
+
+    mae = np.mean(
+        np.abs(residuals)
+    )
+
+    return {
+        "parameter": parameter,
+        "value_type": value_type,
+        "a_temperature": a,
+        "b_irradiance": b,
+        "intercept": c,
+        "R2": r_squared,
+        "RMSE": rmse,
+        "MAE": mae,
+        "n_points": len(x),
+    }
 # ============================================================
 # 3D surface plotting
 # ============================================================
@@ -372,6 +455,12 @@ def plot_surface(
         true
         pred
         error
+
+    The 3D plot contains:
+        1. Interpolated response surface
+        2. Actual observations
+        3. Best-fit linear plane: z = a*T + b*G + c
+        4. R^2, RMSE and MAE for the plane fit
     """
 
     x = df["temperature"].values
@@ -451,6 +540,78 @@ def plot_surface(
     Z[missing] = Z_nearest[missing]
 
     # --------------------------------------------------------
+    # Fit linear plane to ACTUAL observations
+    #
+    # z = a*T + b*G + c
+    #
+    # T = module temperature
+    # G = irradiance
+    # --------------------------------------------------------
+
+    A = np.column_stack([
+        x,
+        y,
+        np.ones_like(x)
+    ])
+
+    coefficients, _, _, _ = np.linalg.lstsq(
+        A,
+        z,
+        rcond=None
+    )
+
+    a, b, c = coefficients
+
+    # Evaluate fitted plane at every point in the plotting grid
+    Z_plane = (
+        a * X
+        + b * Y
+        + c
+    )
+
+    # --------------------------------------------------------
+    # Plane-fit statistics
+    # --------------------------------------------------------
+
+    z_fit = (
+        a * x
+        + b * y
+        + c
+    )
+
+    residuals = z - z_fit
+
+    ss_res = np.sum(
+        residuals ** 2
+    )
+
+    ss_tot = np.sum(
+        (z - np.mean(z)) ** 2
+    )
+
+    if ss_tot > 0:
+        r_squared = 1 - ss_res / ss_tot
+    else:
+        r_squared = np.nan
+
+    rmse = np.sqrt(
+        np.mean(residuals ** 2)
+    )
+
+    mae = np.mean(
+        np.abs(residuals)
+    )
+
+    print(
+        f"\n{parameter} ({value_type}) plane fit:\n"
+        f"    z = {a:.6g} * T "
+        f"+ {b:.6g} * G + {c:.6g}\n"
+        f"    R²   = {r_squared:.4f}\n"
+        f"    RMSE = {rmse:.6g}\n"
+        f"    MAE  = {mae:.6g}"
+    )
+
+    # --------------------------------------------------------
     # Plot
     # --------------------------------------------------------
 
@@ -463,9 +624,17 @@ def plot_surface(
         projection="3d"
     )
 
+    # Include both the observed surface and fitted plane
+    # when determining the z-axis limits so the plane cannot
+    # accidentally be clipped.
+    all_z = np.concatenate([
+        z[np.isfinite(z)],
+        Z_plane[np.isfinite(Z_plane)]
+    ])
+
     ax.set_zlim(
-        np.nanmin(z),
-        np.nanmax(z)
+        np.min(all_z),
+        np.max(all_z)
     )
 
     surface = ax.plot_surface(
@@ -475,6 +644,34 @@ def plot_surface(
         cmap="viridis",
         edgecolor="none",
         alpha=0.85
+    )
+
+    # --------------------------------------------------------
+    # Fitted plane — transparent, lines only
+    # --------------------------------------------------------
+
+    ax.plot_wireframe(
+        X,
+        Y,
+        Z_plane,
+        rstride=5,
+        cstride=5,
+        color="red",
+        linewidth=0.8,
+        alpha=0.9
+    )
+
+    # Add a wireframe on top of the plane to make the fit
+    # easier to distinguish from the interpolated surface.
+    ax.plot_wireframe(
+        X,
+        Y,
+        Z_plane,
+        rstride=max(1, grid_resolution // 12),
+        cstride=max(1, grid_resolution // 12),
+        color="black",
+        linewidth=0.6,
+        alpha=0.65
     )
 
     # --------------------------------------------------------
@@ -506,9 +703,6 @@ def plot_surface(
             "Fitted / True Response Surface"
         )
 
-        # zlabel = (
-        #     f"{parameter} true"
-        # )
         zlabel = get_units(parameter)
 
     elif value_type == "pred":
@@ -518,9 +712,6 @@ def plot_surface(
             "Predicted Response Surface"
         )
 
-        # zlabel = (
-        #     f"{parameter} predicted"
-        # )
         zlabel = get_units(parameter)
 
     else:
@@ -530,9 +721,6 @@ def plot_surface(
             "Prediction Error Surface"
         )
 
-        # zlabel = (
-        #     f"{parameter} error"
-        # )
         zlabel = get_units(parameter)
 
     ax.set_zlabel(
@@ -541,6 +729,31 @@ def plot_surface(
 
     ax.set_title(title)
 
+    # --------------------------------------------------------
+    # Display plane equation and fit quality on plot
+    # --------------------------------------------------------
+
+    plane_text = (
+        f"Plane fit: {parameter} = \n"
+        f"{a:.3g}·T + {b:.3g}·G + {c:.3g}\n"
+        f"R² = {r_squared:.3f}\n"
+        f"RMSE = {rmse:.3g}\n"
+        f"MAE = {mae:.3g}"
+    )
+
+    ax.text2D(
+        0.90,
+        0.98,
+        plane_text,
+        transform=ax.transAxes,
+        verticalalignment="top",
+        bbox=dict(
+            boxstyle="round",
+            facecolor="white",
+            alpha=0.8
+        )
+    )
+
     fig.colorbar(
         surface,
         ax=ax,
@@ -548,7 +761,11 @@ def plot_surface(
         pad=0.1
     )
 
-    ax.legend()
+    # Only the observed samples need a legend entry.
+    # The plane is identified by its equation and wireframe.
+    ax.legend(
+        loc="lower left"
+    )
 
     plt.tight_layout()
 
@@ -1003,7 +1220,7 @@ def run_level4_analysis(
     base_dir = os.path.join(
         output_root,
         tech,
-        "temp_irr_analysis"
+        "temp_irr_analysis_with_plane_fit"
     )
 
     surface_dir = os.path.join(
@@ -1142,6 +1359,8 @@ def run_level4_analysis(
     # --------------------------------------------------------
     # Analyze every parameter
     # --------------------------------------------------------
+    plane_results = []
+
 
     for parameter in ALL_PARAMS:
 
@@ -1179,6 +1398,34 @@ def run_level4_analysis(
             "error",
         ]:
 
+            result = fit_plane(
+                df,
+                parameter,
+                value_type
+            )
+
+            if result is not None:
+                plane_results.append(result)
+
+                print(
+                    f"\n{parameter} ({value_type})"
+                )
+                print(
+                    f"  z = "
+                    f"{result['a_temperature']:.6g} * T "
+                    f"+ {result['b_irradiance']:.6g} * G "
+                    f"+ {result['intercept']:.6g}"
+                )
+                print(
+                    f"  R²   = {result['R2']:.4f}"
+                )
+                print(
+                    f"  RMSE = {result['RMSE']:.6g}"
+                )
+                print(
+                    f"  MAE  = {result['MAE']:.6g}"
+                )
+
             plot_surface(
                 df=df,
                 parameter=parameter,
@@ -1200,6 +1447,25 @@ def run_level4_analysis(
                 ),
                 grid_resolution=grid_resolution,
             )
+
+        plane_results_df = pd.DataFrame(
+            plane_results
+        )
+
+        plane_results_path = os.path.join(
+            data_dir,
+            "plane_fit_results.csv"
+        )
+
+        plane_results_df.to_csv(
+            plane_results_path,
+            index=False
+        )
+
+        print(
+            f"\nSaved plane-fit results:\n"
+            f"{plane_results_path}"
+        )
 
         # ====================================================
         # Temperature slices
