@@ -354,7 +354,7 @@ def evaluate_diode_model(
 ):
 
     base_dir = (
-        f"outputs/{tech}/ae/eval_outputs_0_2_diode_loss"
+        f"outputs/{tech}/SEPIV1/ae/eval_outputs_0_2_diode_loss_v3"
     )
 
     curve_dir = os.path.join(
@@ -685,6 +685,9 @@ def evaluate_diode_model(
         row = {
 
             "idx": idx,
+
+            "Temperature": weather[idx, 0],
+            "Irradiance": weather[idx, 1],
 
             # JV
             "Final_JV_RMSE":
