@@ -354,7 +354,7 @@ def evaluate_diode_model(
 ):
 
     base_dir = (
-        f"outputs/{tech}/ae/eval_outputs"
+        f"outputs/{tech}/ae/eval_outputs_0_2_diode_loss"
     )
 
     curve_dir = os.path.join(
