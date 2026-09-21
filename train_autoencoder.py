@@ -145,9 +145,9 @@ def train(
     # Loss weights
     # --------------------------------------------------------
 
-    lambda_phys=0.1,
+    lambda_phys=0.15,
 
-    lambda_diode=0.20,
+    lambda_diode=0.40,
 
     lambda_residual=1e-3,
 
@@ -282,6 +282,26 @@ def train(
     )
 
     # ========================================================
+    # Loss history
+    # ========================================================
+
+    history = {
+        "train_total": [],
+        "val_total": [],
+
+        "train_jv": [],
+        "val_jv": [],
+
+        "train_phys": [],
+        "val_phys": [],
+
+        "train_diode": [],
+        "val_diode": [],
+
+        "train_residual": [],
+        "val_residual": [],
+    }
+    # ========================================================
     # Training loop
     # ========================================================
 
@@ -378,14 +398,32 @@ def train(
                 - diode_true_norm
             )
 
-            # loss_diode_residual = (
-            #     diode_residual ** 2
-            # ).mean()
-            # 3. DIODE PARAMETER LOSS (Huber / SmoothL1)
+            # error = diode_pred_norm - diode_true_norm
+            #
+            # abs_error = error.abs()
+            #
+            # delta = 1.0
+            #
+            # huber = torch.where(
+            #     abs_error < delta,
+            #     0.5 * error.pow(2),
+            #     delta * (abs_error - 0.5 * delta)
+            # )
+            #
+            # weights = torch.tensor(
+            #     [1.0, 2.0, 1.0, 2.0, 2.0],
+            #     device=error.device
+            # )
+
+
+            # DIODE PARAMETER LOSS (Huber / SmoothL1)
             loss_diode_residual = torch.nn.functional.huber_loss(
                 diode_pred_norm,
                 diode_true_norm, delta=1.0
             )
+            # loss_diode_residual = (
+            #         huber * weights
+            #     ).mean()
 
             # =================================================
             # 4. JV RESIDUAL REGULARIZATION
@@ -552,6 +590,26 @@ def train(
                     diode_pred_norm,
                     diode_true_norm
                 )
+                # error = diode_pred_norm - diode_true_norm
+                #
+                # abs_error = error.abs()
+                #
+                # delta = 1.0
+                #
+                # huber = torch.where(
+                #     abs_error < delta,
+                #     0.5 * error.pow(2),
+                #     delta * (abs_error - 0.5 * delta)
+                # )
+                #
+                # weights = torch.tensor(
+                #     [1.0, 2.0, 1.0, 2.0, 2.0],
+                #     device=error.device
+                # )
+                #
+                # loss_diode_residual = (
+                #         huber * weights
+                # ).mean()
 
                 # ------------------------------------------------
                 # Residual regularization
@@ -630,6 +688,25 @@ def train(
         val_residual /= n_val
 
         # ====================================================
+        # Store loss history
+        # ====================================================
+
+        history["train_total"].append(train_total)
+        history["val_total"].append(val_total)
+
+        history["train_jv"].append(train_jv)
+        history["val_jv"].append(val_jv)
+
+        history["train_phys"].append(train_phys)
+        history["val_phys"].append(val_phys)
+
+        history["train_diode"].append(train_diode)
+        history["val_diode"].append(val_diode)
+
+        history["train_residual"].append(train_residual)
+        history["val_residual"].append(val_residual)
+
+        # ====================================================
         # Print
         # ====================================================
 
@@ -691,12 +768,31 @@ def train(
                     "lambda_latent":
                         lambda_latent,
                 },
-                model_path,
+                model_path
             )
 
             print(
                 "  -> Saved best model"
             )
+    # ========================================================
+    # Save loss history
+    # ========================================================
+
+    history_path = (
+        out_dir / "training_history.npz"
+    )
+
+    np.savez(
+        history_path,
+        **{
+            key: np.array(value)
+            for key, value in history.items()
+        }
+    )
+
+    print(
+        f"\nTraining history saved to: {history_path}"
+    )
 
 
 # ============================================================

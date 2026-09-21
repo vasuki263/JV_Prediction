@@ -1,7 +1,8 @@
 # jv_analysis.py
 
 import numpy as np
-
+from scipy.interpolate import PchipInterpolator
+from scipy.optimize import minimize_scalar
 
 def extract_voc(V, I):
     """
@@ -203,15 +204,71 @@ def extract_jv_physics(
         )
 
     # Only search inside the physical PV operating region
+    # mask_mpp = (
+    #         (V >= 0)
+    #         & (V <= Voc_abs)
+    # )
+    #
+    # V_mpp_region = V[mask_mpp]
+    # J_mpp_region = J[mask_mpp]
+    #
+    # if len(V_mpp_region) < 2:
+    #     return (
+    #         Voc,
+    #         Jsc,
+    #         np.nan,
+    #         np.nan,
+    #         np.nan,
+    #         np.nan,
+    #     )
+    #
+    # P = V_mpp_region * J_mpp_region
+    #
+    # # If your JV convention gives negative photovoltaic current,
+    # # use absolute power.
+    # P_abs = np.abs(P)
+    #
+    # k = np.argmax(P_abs)
+    #
+    # Vmpp = V_mpp_region[k]
+    # Jmpp = J_mpp_region[k]
+    # Pmpp = P_abs[k]
+    #
+    # # --------------------------------------------------------
+    # # Fill factor
+    # #
+    # # FF = Pmpp / (|Voc| |Jsc|)
+    # # --------------------------------------------------------
+    #
+    # denom = (
+    #     np.abs(Voc)
+    #     * np.abs(Jsc)
+    # )
+    #
+    # if (
+    #     not np.isfinite(Voc)
+    #     or not np.isfinite(Jsc)
+    #     or denom < 1e-12
+    # ):
+    #     FF = np.nan
+    #
+    # else:
+    #     FF = Pmpp / denom
+    #
+    # # # Physical sanity check
+    # # if FF < 0 or FF > 1.0:
+    # #     FF = np.nan
+    # FF = np.clip(FF, 0, 1)
+    # Positive PV operating region
     mask_mpp = (
-            (V >= 0)
-            & (V <= Voc_abs)
+            (V >= 0) &
+            (V <= Voc_abs)
     )
 
-    V_mpp_region = V[mask_mpp]
-    J_mpp_region = J[mask_mpp]
+    V_region = V[mask_mpp]
+    J_region = J[mask_mpp]
 
-    if len(V_mpp_region) < 2:
+    if len(V_region) < 3:
         return (
             Voc,
             Jsc,
@@ -221,43 +278,31 @@ def extract_jv_physics(
             np.nan,
         )
 
-    P = V_mpp_region * J_mpp_region
-
-    # If your JV convention gives negative photovoltaic current,
-    # use absolute power.
-    P_abs = np.abs(P)
-
-    k = np.argmax(P_abs)
-
-    Vmpp = V_mpp_region[k]
-    Jmpp = J_mpp_region[k]
-    Pmpp = P_abs[k]
-
-    # --------------------------------------------------------
-    # Fill factor
-    #
-    # FF = Pmpp / (|Voc| |Jsc|)
-    # --------------------------------------------------------
-
-    denom = (
-        np.abs(Voc)
-        * np.abs(Jsc)
+    # Interpolate JV curve
+    j_interp = PchipInterpolator(
+        V_region,
+        J_region
     )
 
-    if (
-        not np.isfinite(Voc)
-        or not np.isfinite(Jsc)
-        or denom < 1e-12
-    ):
-        FF = np.nan
+    def power(v):
+        return abs(v * j_interp(v))
 
-    else:
-        FF = Pmpp / denom
+    result = minimize_scalar(
+        lambda v: -power(v),
+        bounds=(
+            V_region.min(),
+            V_region.max()
+        ),
+        method="bounded"
+    )
 
-    # # Physical sanity check
-    # if FF < 0 or FF > 1.0:
-    #     FF = np.nan
-    FF = np.clip(FF, 0, 1)
+    Vmpp = result.x
+    Jmpp = float(j_interp(Vmpp))
+    Pmpp = abs(Vmpp * Jmpp)
+
+    denom = abs(Voc) * abs(Jsc)
+
+    FF = Pmpp / denom if denom > 1e-12 else np.nan
 
     return (
         Voc,

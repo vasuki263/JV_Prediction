@@ -5,7 +5,7 @@ import numpy as np
 # ============================================================
 # Differentiable Single-Diode Solver
 # ============================================================
-
+#
 class SingleDiodeSolver(nn.Module):
     """
     Differentiable Newton solver for the single-diode equation.
@@ -114,7 +114,7 @@ class PhysicsInformedJVModel(nn.Module):
         jv_dim,
         weather_dim,
         voltage_grid,
-        latent_dim=64,
+        latent_dim=144,
         hidden_dims=(256, 128),
         diode_mean=None,
         diode_std=None,
@@ -300,7 +300,7 @@ class PhysicsInformedJVModel(nn.Module):
         # ====================================================
 
         self.solver = SingleDiodeSolver(
-            Ns=1
+            Ns=144
         )
 
     # ========================================================

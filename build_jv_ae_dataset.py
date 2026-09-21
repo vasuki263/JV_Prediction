@@ -20,8 +20,14 @@ def safe_interpolate_to_grid(V, I, V_grid):
         return None
 
     # If voltage has duplicates → add tiny jitter
-    if len(np.unique(V)) < len(V):
-        V = V + np.random.normal(0, 1e-6, size=len(V))
+    # if len(np.unique(V)) < len(V):
+    #     V = V + np.random.normal(0, 1e-6, size=len(V))
+    df = pd.DataFrame({"V": V, "I": I})
+    df = df.groupby("V", as_index=False)["I"].mean()
+
+    V = df["V"].to_numpy()
+    I = df["I"].to_numpy()
+    idx = np.argsort(V)
 
     try:
         idx = np.argsort(V)
@@ -55,7 +61,7 @@ def safe_smooth_curve(y):
         return None
 
     # Window must be smaller than length
-    window = min(11, len(y) - (len(y) % 2 == 0))
+    window = min(41, len(y) - (len(y) % 2 == 0))
     if window < 5:
         window = 5
 
@@ -69,7 +75,7 @@ def safe_smooth_curve(y):
 
     return y_smooth.astype(np.float32)
 
-def single_diode_current(V, params, T=298.15):
+def single_diode_current(V, params, T=298.15, Ns=144):
     Iph, I0, n, Rs, Rsh = params
 
     k = 1.380649e-23
@@ -80,7 +86,7 @@ def single_diode_current(V, params, T=298.15):
 
     # Newton iterations
     for _ in range(50):
-        exp_term = np.exp(np.clip((V + I*Rs)/(n*Vt), -100, 100))
+        exp_term = np.exp(np.clip((V + I*Rs)/(n*Ns*Vt), -100, 100))
 
         f = (
             Iph
@@ -99,7 +105,7 @@ def single_diode_current(V, params, T=298.15):
 
     return I
 
-def fit_single_diode(V, I, temperature=25):
+def fit_single_diode(V, I, temperature=25, Ns=144):
     V = np.asarray(V, dtype=float)
     I = np.asarray(I, dtype=float)
 
@@ -113,7 +119,7 @@ def fit_single_diode(V, I, temperature=25):
     T = temperature + 273.15
 
     def residuals(p):
-        I_model = single_diode_current(V, p, T)
+        I_model = single_diode_current(V, p, T, Ns=Ns)
         return I_model - I
 
     Isc = np.max(I)

@@ -212,10 +212,10 @@ def extract_clean_jv_from_bytes(data, key):
 def get_s3_keys_from_influx(tech):
     query = f"""
     from(bucket: "test_jv_upload")
-      |> range(start: -365d)
+      |> range(start: -450d)
       |> filter(fn: (r) => r["_measurement"] == "jv_measurements")
       |> filter(fn: (r) => r["panel_name"] == "{tech}")
-      |> filter(fn: (r) => r["sepiv"] == "SEPIV1")
+      |> filter(fn: (r) => r["sepiv"] == "SEPIV3")
       |> filter(fn: (r) => r["_field"] == "s3_bucket" or r["_field"] == "s3_object_key")
     """
 

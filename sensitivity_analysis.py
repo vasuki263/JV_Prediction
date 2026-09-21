@@ -13,7 +13,7 @@ from jv_analysis import extract_jv_physics
 # CONFIGURATION
 # ============================================================
 
-DIODE_PARAMS = [
+ALL_DIODE_PARAMS = [
     "Iph",
     "Io",
     "n",
@@ -21,7 +21,7 @@ DIODE_PARAMS = [
     "Rsh",
 ]
 
-ELECTRICAL_PARAMS = [
+ALL_ELECTRICAL_PARAMS = [
     "Voc",
     "Jsc",
     "Vmpp",
@@ -30,11 +30,48 @@ ELECTRICAL_PARAMS = [
     "FF",
 ]
 
+DIODE_PARAMS = [
+    "Iph",
+    "Io",
+    "Rs",
+    "Rsh",
+]
+
+ELECTRICAL_PARAMS = [
+    "Voc",
+    "Jsc",
+    "Pmpp",
+    "FF",
+]
+
+DIODE_INDICES = [
+    ALL_DIODE_PARAMS.index(p)
+    for p in DIODE_PARAMS
+]
+
+ELECTRICAL_INDICES = [
+    ALL_ELECTRICAL_PARAMS.index(p)
+    for p in ELECTRICAL_PARAMS
+]
+
 ALL_PARAMS = DIODE_PARAMS + ELECTRICAL_PARAMS
 
 PERTURBATION = 0.10
 
+SENSITIVITY_PARAMS = [
+    "Voc",
+    "Jsc",
+    "Pmpp",
+    "Iph",
+    "Io",
+    "Rs",
+    "Rsh",
+]
 
+SENSITIVITY_INDICES = [
+    ALL_PARAMS.index(p)
+    for p in SENSITIVITY_PARAMS
+]
 # ============================================================
 # LOAD MODEL
 # ============================================================
@@ -46,7 +83,8 @@ def load_model(model_path, dataset, device):
 
     ckpt = torch.load(
         model_path,
-        map_location=device
+        map_location=device,
+        weights_only=False
     )
 
     model = PhysicsInformedJVModel(
@@ -131,6 +169,8 @@ def predict_parameters(
         + diode_mean
     )
 
+    diode_pred = diode_pred[:, DIODE_INDICES]
+
     # --------------------------------------------------------
     # Extract electrical parameters from predicted JV
     # --------------------------------------------------------
@@ -151,6 +191,8 @@ def predict_parameters(
         electrical_pred,
         dtype=np.float32
     )
+
+    electrical_pred = electrical_pred[:, ELECTRICAL_INDICES]
 
     return diode_pred, electrical_pred
 
@@ -397,6 +439,99 @@ def calculate_summary(
 
     return pd.DataFrame(rows)
 
+# ============================================================
+# CALCULATE SENSITIVITY
+# ============================================================
+
+def calculate_sensitivity(results, input_name):
+    """
+    Calculate dimensionless sensitivity of each parameter
+    to temperature or irradiance.
+
+    S_P^X =
+        | (P_plus - P_minus) / (2 * P_baseline) |
+        ------------------------------------------------
+        | (X_plus - X_minus) / (2 * X_baseline) |
+
+    Temperature is converted from degrees Celsius to Kelvin
+    ONLY for the relative temperature change calculation.
+    The model predictions themselves still use temperature in °C.
+    """
+
+    baseline = results["baseline"]
+    minus = results["minus"]
+    plus = results["plus"]
+
+    weather_baseline = results["weather_baseline"]
+    weather_minus = results["weather_minus"]
+    weather_plus = results["weather_plus"]
+
+    if input_name == "temperature":
+        input_index = 0
+
+        # Model temperature remains in °C.
+        # Convert only for relative sensitivity calculation.
+        X0 = weather_baseline[:, input_index] + 273.15
+        X_minus = weather_minus[:, input_index] + 273.15
+        X_plus = weather_plus[:, input_index] + 273.15
+
+    elif input_name == "irradiance":
+        input_index = 1
+
+        # Irradiance can be used directly.
+        X0 = weather_baseline[:, input_index]
+        X_minus = weather_minus[:, input_index]
+        X_plus = weather_plus[:, input_index]
+
+    else:
+        raise ValueError(
+            "input_name must be 'temperature' or 'irradiance'"
+        )
+
+    # Relative input change
+    relative_input_change = np.abs(
+        (X_plus - X_minus) / (2.0 * X0)
+    )
+
+    rows = []
+
+    for j in SENSITIVITY_INDICES:
+
+        parameter = ALL_PARAMS[j]
+
+        P0 = baseline[:, j]
+        P_minus = minus[:, j]
+        P_plus = plus[:, j]
+
+        # Relative parameter change
+        relative_parameter_change = np.abs(
+            (P_plus - P_minus) / (2.0 * P0)
+        )
+
+        # Dimensionless sensitivity
+        sensitivity = (
+            relative_parameter_change
+            / relative_input_change
+        )
+
+        sensitivity[~np.isfinite(sensitivity)] = np.nan
+
+        rows.append({
+            "Parameter": parameter,
+            "Sensitivity": np.nanmean(sensitivity),
+            "Median_Sensitivity": np.nanmedian(sensitivity),
+        })
+
+    df = pd.DataFrame(rows)
+
+    df = df.sort_values(
+        "Sensitivity",
+        ascending=False
+    ).reset_index(drop=True)
+
+    df["Rank"] = np.arange(len(df)) + 1
+
+    return df
 
 # ============================================================
 # PLOT PARAMETER CHANGE
@@ -681,7 +816,7 @@ def run_analysis(
         output_root,
         tech,
 
-        "sensitivity_analysis"
+        "sensitivity_analysis_15_09"
     )
 
     data_dir = os.path.join(
@@ -853,6 +988,110 @@ def run_analysis(
         output_path=os.path.join(
             plot_dir,
             "irradiance_parameter_change_plus_minus_10_percent.png"
+        )
+    )
+
+    # ========================================================
+    # SENSITIVITY ANALYSIS
+    # ========================================================
+
+    temperature_sensitivity = calculate_sensitivity(
+        temperature_results,
+        input_name="temperature"
+    )
+
+    irradiance_sensitivity = calculate_sensitivity(
+        irradiance_results,
+        input_name="irradiance"
+    )
+
+    # ========================================================
+    # COMBINE SENSITIVITY RESULTS
+    # ========================================================
+
+    temperature_sensitivity = (
+        temperature_sensitivity[
+            ["Parameter", "Sensitivity"]
+        ]
+        .rename(
+            columns={
+                "Sensitivity":
+                    "Temperature_Sensitivity"
+            }
+        )
+    )
+
+    irradiance_sensitivity = (
+        irradiance_sensitivity[
+            ["Parameter", "Sensitivity"]
+        ]
+        .rename(
+            columns={
+                "Sensitivity":
+                    "Irradiance_Sensitivity"
+            }
+        )
+    )
+
+    sensitivity_table = temperature_sensitivity.merge(
+        irradiance_sensitivity,
+        on="Parameter"
+    )
+
+    # --------------------------------------------------------
+    # Add ranking
+    # --------------------------------------------------------
+
+    sensitivity_table[
+        "Temperature_Rank"
+    ] = (
+        sensitivity_table[
+            "Temperature_Sensitivity"
+        ]
+        .rank(
+            ascending=False,
+            method="min"
+        )
+        .astype(int)
+    )
+
+    sensitivity_table[
+        "Irradiance_Rank"
+    ] = (
+        sensitivity_table[
+            "Irradiance_Sensitivity"
+        ]
+        .rank(
+            ascending=False,
+            method="min"
+        )
+        .astype(int)
+    )
+
+    sensitivity_table.to_csv(
+        os.path.join(
+            data_dir,
+            "parameter_sensitivity_ranking.csv"
+        ),
+        index=False
+    )
+
+    print(
+        "\n=============================================="
+    )
+
+    print(
+        "PARAMETER SENSITIVITY RANKING"
+    )
+
+    print(
+        "=============================================="
+    )
+
+    print(
+        sensitivity_table.to_string(
+            index=False,
+            float_format=lambda x: f"{x:.4f}"
         )
     )
 

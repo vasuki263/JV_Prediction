@@ -82,3 +82,186 @@ If you are writing a thesis, I'd focus on these six relationships:
 * Module temperature → **(I_{ph})** (with irradiance shown or normalized)
 
 These provide a good balance between physically meaningful diode-model parameters and standard PV performance metrics.
+
+
+
+
+% \chapter{Sensitivity Analysis}
+% \label{chap:sensitivity_analysis}
+% \section{Parameter Response to $\pm10\%$ Environmental Perturbations}
+% The response-surface analysis presented in Chapter 7 established the general dependence of the predicted photovoltaic parameters on module temperature and irradiance. The present chapter extends this analysis by quantifying the magnitude of the parameter response to controlled changes in these environmental inputs.
+
+% For each J–V measurement, the corresponding module temperature and average irradiance were stored in the same dataset row as the measured curve. These environmental inputs were directly supplied to the model to predict the corresponding J–V curve and diode parameters, ensuring a one-to-one sample-wise correspondence between operating conditions and predictions. Temperature and irradiance  independently perturbed by $\pm10\%$, while the other environmental variable was held constant.The resulting parameter values were compared with the corresponding baseline predictions. The relative change was calculated as
+
+% \begin{equation}
+%     \frac{P_{\pm10\%}-P_{\mathrm{baseline}}}
+% {|P_{\mathrm{baseline}}|}
+% \times100,
+% \end{equation}
+
+
+% where $P_{\pm10\%}$ denotes the predicted parameter after applying either a 10\% decrease or increase in the selected environmental variable (\cite{khamkar2026perovskite}). The analysis was performed at the individual sample level and subsequently summarised across the dataset.
+
+
+% \subsection{Perovskite Panel 5}
+
+% For Perovskite Panel 5, the predicted macroscopic electrical parameters exhibit relatively moderate responses to the $\pm10\%$ environmental perturbations. Under irradiance variation as shown in Figure \ref{fig:psk_5_irr}, $P_{mpp}$ shows the largest response among the main electrical parameters, changing by approximately -1.06\% and +1.44\% for a 10\% decrease and increase in irradiance, respectively. The corresponding changes in $J_{sc}$ are -0.70\% and +0.64\%, while $V_{oc}$ changes by only +0.07\% and +0.55\%.
+
+% The stronger response of $J_{sc}$ and $P_{mpp}$ compared with $V_{oc}$ can be attributed to the different ways in which irradiance influences the photovoltaic operating characteristics. This is consistent with the environmental dependence identified in Section \ref{sec:param_eval_env}, but the perturbation analysis provides a direct quantitative measure of the magnitude of this response. Increasing irradiance primarily increases the photogenerated carrier population and therefore has a direct effect on the photocurrent. Since $P_{mpp}$ depends on both current and voltage, changes in the current contribution are also reflected in the maximum-power output. In contrast, the dependence of $V_{oc}$ on irradiance is weaker and generally follows a logarithmic relationship, resulting in a smaller relative change over the investigated perturbation range. The comparatively small changes observed here therefore indicate that the predicted voltage characteristic is less sensitive to moderate irradiance variations than the current and power characteristics.
+
+% \begin{figure}[H]
+%     \centering
+%     \makebox[\textwidth][c]{%
+%     \includegraphics[width=1.2\linewidth]{Psk/Psk_5/irradiance_parameter_change_plus_minus_10_percent.png}}
+%     \caption{Sensitivity of the predicted photovoltaic and single-diode parameters for Perovskite Panel 5 to independent $\pm10\%$ perturbations in irradiance. The plots show the percentage change in each parameter relative to its baseline prediction, illustrating the response of the predicted device characteristics to changes in irradiance.}
+%     \label{fig:psk_5_irr}
+% \end{figure}
+
+% The temperature perturbation as shown in Figure \ref{fig:psk_5_temp}, produces a more pronounced response in the main electrical parameters, particularly for $V_{oc}$ and $P_{mpp}$ (Figure \ref{fig}). The stronger temperature dependence of $V_{oc}$ is consistent with the temperature dependence of the diode-related behaviour of the photovoltaic device, indicating that the model learns this temperature dependence well, also established in previous sections. Changes in temperature modify the semiconductor properties and recombination behaviour represented by the diode model, which can shift the voltage characteristics. The resulting change in voltage also contributes to the change in $P_{mpp}$. The comparatively smaller response of $J_{sc}$ suggests that, within the investigated temperature range, the predicted short-circuit current is less affected by temperature than the voltage-related characteristics.
+
+
+% \begin{figure}[H]
+%     \centering
+%     \makebox[\textwidth][c]{%
+%     \includegraphics[width=1.2\linewidth]{Psk/Psk_5/temperature_parameter_change_plus_minus_10_percent.png}}
+%     \caption{Sensitivity of the predicted photovoltaic and single-diode parameters for Perovskite Panel 5 to independent $\pm10\%$ perturbations in module temperature. The plots show the percentage change in each parameter relative to its baseline prediction, illustrating the response of the predicted device characteristics to changes in module temperature.}
+%     \label{fig:psk_5_temp}
+% \end{figure}
+
+
+
+% The larger sensitivity of $R_{sh}$ and $I_0$ should not be interpreted as indicating that these parameters produce equally large changes in the overall J-V behaviour. Both quantities are extracted from the predicted J-V characteristic, and they are particularly sensitive to changes in regions of the curve associated with leakage and diode behaviour. Consequently, a relatively small change in the J-V curve can result in a comparatively large relative change in the extracted parameter value, especially when the baseline value of the parameter is large or when the relevant current contribution is small. The high sensitivities therefore primarily indicate that the single-diode parameter representation is more responsive to environmental perturbations than the directly observable electrical outputs.
+
+% The consistently higher temperature sensitivities compared with irradiance sensitivities also suggest that temperature produces a stronger relative change in the predicted parameter set for this panel. This may arise because temperature affects several coupled quantities within the diode representation, including the voltage-dependent diode behaviour and leakage-related parameters, whereas irradiance has a more direct influence on the photogenerated current. The sensitivity results therefore provide evidence that the environmental dependence of the extracted diode parameters is not equivalent to that of the macroscopic electrical characteristics.
+
+% \subsection{Perovskite Panel 6}
+
+% \begin{figure}[H]
+%     \centering
+%     \makebox[\textwidth][c]{%
+%     \includegraphics[width=1.2\linewidth]{Psk/Psk_6/irradiance_parameter_change_plus_minus_10_percent.png}}
+%     \caption{Sensitivity of the predicted photovoltaic and single-diode parameters for Perovskite Panel 6 to independent $\pm10\%$ perturbations in irradiance. The plots show the percentage change in each parameter relative to its baseline prediction, illustrating the response of the predicted device characteristics to changes in irradiance.}
+%     \label{fig:psk_6_irr}
+% \end{figure}
+
+% \begin{figure}[H]
+%     \centering
+%     \makebox[\textwidth][c]{%
+%     \includegraphics[width=1.2\linewidth]{Psk/Psk_6/temperature_parameter_change_plus_minus_10_percent.png}}
+%     \caption{Sensitivity of the predicted photovoltaic and single-diode parameters for Perovskite Panel 6 to independent $\pm10\%$ perturbations in module temperature. The plots show the percentage change in each parameter relative to its baseline prediction, illustrating the response of the predicted device characteristics to changes in irradiance.}
+%     \label{fig:psk_6_temp}
+% \end{figure}
+
+
+% For Perovskite Panel~6, the sensitivity behaviour shows the same general tendencies as Panel~5 but with noticeably stronger irregularity and weaker environmental coherence. As in Panel~5, the extracted parameters $R_{sh}$ and $I_0$ exhibit comparatively large relative changes under $\pm 10\%$ perturbations in temperature and irradiance. However, these high sensitivities should not be interpreted as indicating that the underlying J-V curve undergoes equally large physical changes. Instead, they reflect the fact that both $R_{sh}$ and $I_0$ are derived from regions of the J-V curve dominated by leakage pathways, defect-mediated conduction, and diode-related recombination. Small perturbations in the J-V shape, particularly near the low-voltage leakage region and the high-voltage diode region, can therefore propagate into  larger relative changes in the extracted parameter values.
+
+% Compared with Panel~5, Panel~6 shows more irregular and less predictable sensitivity behaviour, consistent with the substantially lower linearity observed in the true $R_{sh}$ and $I_0$ response surfaces in sections \ref{env_Rsh} and \ref{env_I0} . The $\pm 10\%$ temperature perturbation produces relatively large changes in both parameters, but the direction and magnitude of these changes are less systematic than in Panel~5. 
+
+% The irradiance perturbation results further reinforce this behaviour. While irradiance produces measurable changes in $R_{sh}$ and $I_0$, the sensitivity is weaker and more inconsistent than the temperature sensitivity. This is expected because irradiance primarily affects the photogenerated current, whereas temperature influences several coupled quantities within the single-diode representation, including leakage pathways, recombination strength, and voltage-dependent diode behaviour. As a result, temperature perturbations produce a comparatively stronger relative change in the extracted parameter set, even though the macroscopic electrical outputs (such as $V_{oc}$, $J_{sc}$, and $P_{mpp}$) may show more modest variation.
+
+% These results of both panels demonstrates that the environmental dependence of the extracted diode parameters is not equivalent to the environmental dependence of the directly observable J-V characteristics. The large relative sensitivities primarily reflect the responsiveness of the parameter extraction process to small perturbations in the J-V curve, amplified by the nonlinear and device-specific  behaviour characteristics. This is consistent with the low $R^2$ values and high scatter observed in the true response surfaces, which indicate that temperature and irradiance alone cannot fully describe the variation in $R_{sh}$ and $I_0$.
+
+
+
+% \subsection{Silicon SunPower 5-1}
+% The Silicon SunPower 5-1 panel provides a useful comparison with the two perovskite modules because its sensitivity ranking shows both similarities and difference as shown in Figure \ref{fig:si_irr}. A $\pm10\%$ change in irradiance results in changes of only -0.37\% and +0.31\% in $J_{sc}$ and -0.15\% and +0.19\% in $V_{oc}$. $I_{ph}$ changes by -0.56\% and +0.46\%, while $P_{mpp}$ shows a somewhat larger response of -1.51\% and +1.37\%. The relatively small changes in the main electrical parameters imply that the predicted operating characteristics are robust to moderate irradiance perturbations around the measured operating conditions. The stronger response of $P_{mpp}$ can be explained by the fact that power is determined by the combined voltage and current response of the device. Even when the relative change in $V_{oc}$ is small, a change in current can contribute directly to the maximum-power output. Similarly, the relatively larger response of $I_{ph}$ compared with $V_{oc}$ is consistent with the more direct relationship between irradiance and photogenerated current.
+
+% \begin{figure}[H]
+%     \centering
+%     \makebox[\textwidth][c]{%
+%     \includegraphics[width=1.2\linewidth]{Si/irradiance_parameter_change_plus_minus_10_percent.png}}
+%     \caption{Sensitivity of the predicted photovoltaic and single-diode parameters for Silicon SunPower 5-1 Panel to independent $\pm10\%$ perturbations in irradiance. The plots show the percentage change in each parameter relative to its baseline prediction, illustrating the response of the predicted device characteristics to changes in irradiance.}
+%     \label{fig:si_irr}
+% \end{figure}
+
+% \begin{figure}[H]
+%     \centering
+%     \makebox[\textwidth][c]{%
+%     \includegraphics[width=1.2\linewidth]{Si/temperature_parameter_change_plus_minus_10_percent.png}}
+%     \caption{Sensitivity of the predicted photovoltaic and single-diode parameters for Silicon SunPower 5-1 Panel to independent $\pm10\%$ perturbations in module temperature.}
+%     \label{fig:si_temp}
+% \end{figure}
+
+% Under temperature perturbation, increasing the temperature by 10\% results in approximately a 1.10\% decrease in $V_{oc}$ and a 0.92\% decrease in $P_{mpp}$, while the other macroscopic electrical quantities show comparatively smaller changes (Figure \ref{fig:si_temp}). The decrease in $V_{oc}$ with increasing temperature is consistent with the temperature dependence discussed in section \ref{env_voc}. The corresponding reduction in $P_{mpp}$ is therefore likely to result from the combined effect of the temperature-induced voltage change and smaller changes in the current and fill-factor-related behaviour. 
+
+% This sensitivity behaviour exhibits the same general tendencies observed for the perovskite panels, but with a noticeably more systematic and coherent environmental response. As with the perovskite devices, the extracted parameters $R_{sh}$ and $I_0$ show comparatively large relative changes under $\pm 10\%$ perturbations in temperature and irradiance. However, these large sensitivities should not be interpreted as indicating that the underlying J-V curve undergoes equally large physical changes. Instead, they reflect the fact that both $R_{sh}$ and $I_0$ are derived from regions of the J-V curve dominated by leakage and diode-related recombination, where small perturbations in the curve shape can propagate into disproportionately large relative changes in the extracted parameter values. This effect is particularly pronounced when the baseline parameter values are large or when the relevant current contributions are small.
+
+% Compared with the perovskite panels, the silicon device shows a more regular and predictable sensitivity pattern. The $\pm 10\%$ temperature perturbation produces relatively clear and systematic changes in both $R_{sh}$ and $I_0$, consistent with the well-defined temperature dependence of silicon. In contrast, the irradiance perturbation produces weaker and more modest sensitivities, reflecting the fact that irradiance primarily influences the photogenerated current rather than the leakage or diode components from which $R_{sh}$ and $I_0$ are extracted.
+
+% The sensitivity behaviour of the silicon panel is also consistent with the fitted response surfaces presented earlier in sections \ref{env_Rsh} and \ref{env_I0}. The predicted silicon surfaces exhibit substantially higher linearity and lower scatter than the true surfaces, indicating that the model learns the dominant temperature-driven behaviour more consistently than in the perovskite panels. The stronger and more coherent temperature sensitivity observed in the perturbation analysis therefore reflects the underlying monotonic and physically well-defined temperature dependence of silicon, rather than an increased susceptibility of the J-V curve itself. As with the perovskite panels, the sensitivity results demonstrate that the environmental dependence of the extracted diode parameters is not equivalent to that of the macroscopic electrical characteristics, but in the case of silicon, the relationship is more systematic and more readily captured by the model.
+
+
+% \section{Summary}
+% Across all three panels, the $\pm10\%$ perturbation study shows that the macroscopic electrical outputs ($J_{sc}$, $V_{oc}$, $P_{mpp}$, FF) respond moderately to changes in irradiance and temperature, whereas the extracted single-diode parameters, particularly $R_{sh}$ and $I_{0}$ exhibit much larger relative sensitivities because they are derived from leakage and diode-dominated regions of the J-V curve where small perturbations amplify strongly. Perovskite Panels~5 and~6 display similar qualitative trends, though Panel~6 shows more irregular and less coherent behaviour due to stronger nonlinearities and weaker temperature--irradiance linearity. In contrast, the Silicon SunPower panel exhibits smaller and more systematic changes in its electrical outputs and more predictable parameter sensitivities, reflecting the stable and monotonic diode physics of crystalline silicon. Overall, the results demonstrate that the environmental dependence of extracted diode parameters is not equivalent to that of the observable J-V characteristics, and that temperature consistently produces stronger and more structured parameter changes than irradiance.
+
+
+
+
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.75\linewidth]{Psk/Psk_5/residual_comparison_0003_psk5.png}
+%     \caption{True and predicted J–V residuals for representative curves from Perovskite panel 1 dataset. The residual \(J_{\mathrm{true}}-J_{\mathrm{phys}}\) represents the deviation of the measured J-V characteristic from the physics-based prediction. The predicted residual shows the correction learned by the neural network to account for these deviations across the voltage range.}
+%     \label{true_pred_res_psk5}
+% \end{figure}
+
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.75\linewidth]{Psk/Psk_6/residual_comparison_002_psk6.png}
+%     \caption{True and predicted J–V residuals for representative curves from Perovskite panel 2 dataset. The residual \(J_{\mathrm{true}}-J_{\mathrm{phys}}\) represents the deviation of the measured J-V characteristic from the physics-based prediction. The predicted residual shows the correction learned by the neural network to account for these deviations across the voltage range.}
+%     \label{true_pred_res_psk6}
+% \end{figure}
+
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.75\linewidth]{Si/residual_comparison_0001_si.png}
+%     \caption{True and predicted J–V residuals for representative curves from Silicon panel dataset. The residual \(J_{\mathrm{true}}-J_{\mathrm{phys}}\) represents the deviation of the measured J-V characteristic from the physics-based prediction. The predicted residual shows the correction learned by the neural network to account for these deviations across the voltage range.}
+%     \label{true_pred_res_si}
+% \end{figure}
+
+
+
+% \subsection{Open-Circuit Voltage ($V_{oc}$)}
+% The predictions of $V_{oc}$ show moderate to good agreement across all three panels. The Silicon panel achieves the lowest NRMSE of 0.05 and the highest $R^2$ of 0.52, while Pearson correlations remain in a closely similar trend across the panels ($R=0.66–0.73$). This indicates that the general variation in $V_{oc}$ is captured reasonably well, with particularly good absolute agreement for the Silicon module.
+
+% The comparatively stable prediction of $V_{oc}$ arises because $V_{oc}$ is determined primarily by a small subset of diode parameters whose influence on the J-V curve is strong and monotonic. In the single-diode model, $V_{oc}$ is given implicitly by the condition $J(V_{oc}) = 0$, which depends mainly on the photocurrent $I_{ph}$, the saturation current $I_o$, and the ideality factor $n$. Small errors in these parameters shift $V_{oc}$ in a predictable way, and the model learns these global relationships consistently across the three panels. As a result, even when the detailed shape of the J-V curve is imperfectly reproduced, the predicted $V_{oc}$ remains comparatively accurate because it is governed by these dominant parameters rather than by the finer voltage-dependent curvature of the full characteristic. Although $V_{oc}$ is predicted relatively well, the measured value can also be influenced by device-specific recombination pathways, interfacial barriers, and, in perovskite devices, time-dependent phenomena such as ionic redistribution. Ionic motion can modify the internal electric field under forward bias, shifting the high-voltage region and altering the effective recombination rate at open circuit. Charge trapping and detrapping can similarly affect the quasi-Fermi level splitting and thereby perturb $V_{oc}$. These effects are not explicitly represented in the single-diode formulation and may contribute to residual deviations that the learned correction does not fully eliminate.
+
+% \subsection{Short-Circuit Current ($J_{sc}$)}
+% $J_{sc}$ is predicted with relatively strong performance, particularly for the Silicon panel, which achieves an NRMSE of 0.076, Pearson R of 0.88, and $R^2=0.61$. The perovskite panels show slightly higher errors but still maintain relatively strong correlations. This may reflect the greater variability of the measured perovskite J-V characteristics, which can arise from device-dependent charge collection and transient effects. This behaviour is expected because $J_{sc}$ is determined primarily by the low-voltage region of the J-V curve, where the photocurrent dominates. and the curve is least affected by non‑idealities such as series resistance, recombination dynamics, ionic migration, or hysteresis. The low curvature and stability of this region make $J_{sc}$ inherently easier to predict. The stronger prediction, therefore suggests that the model captures the current level and its variation under different operating conditions effectively.
+
+
+% \subsection{Maximum Power ($P_{mpp}$)}
+% The prediction of $P_{mpp}$ shows larger errors compared with $V_{oc}$ and $J_{sc}$, with NRMSE values between 0.17 and 0.18. The Silicon panel exhibits the strongest correlation ($R=0.77$), although its $R^2$ value remains low (0.51). The Perovskite panels show weaker correlations and similarly moderate-to-high errors. Silicon's $P_{mpp}$ values span a narrower range than those of the perovskite panels, meaning that a given absolute prediction error represents a larger fraction of the total variance in the Silicon dataset. Consequently, $R^2$ can be comparatively low even when the predicted and measured values remain strongly correlated. This highlights the importance of interpreting $R^2$ together with absolute error metrics such as NRMSE, rather than using $R^2$ alone to assess predictive accuracy.
+
+% This behaviour is likely related to the fact that $P_{mpp}$ depends on both current and voltage around the maximum power point, making it particularly sensitive to small deviations in the position and shape of the J-V knee. This behaviour arises because the maximum‑power region lies in the knee of the J-V curve, where the transition from the photocurrent‑dominated regime to the recombination‑dominated regime occurs. In this part of the curve, both the slope and curvature change rapidly, making the local shape highly sensitive to small modeling errors. As a result, even minor deviations in the position or rounding of the knee can lead to disproportionately large changes in the extracted maximum power, even when the overall J-V characteristic is reproduced well.
+
+% The difference between relatively high Pearson R and low $R^2$, particularly for the Silicon panel, suggests that the predicted values follow the overall trend but may contain systematic offsets or differences in magnitude. 
+
+% \subsection{Fill Factor (FF)}
+% Fill factor exhibits the weakest prediction performance among the electrical parameters. The Perovskite panel 1 shows particularly high error ($\text{NRMSE}=0.33$) together and also very low $R^2$ ($0.035$). Silicon achieves relatively better results, likely because the other parameters that FF depends on ($V_{oc}$, $J_{sc}$, and $P_{mpp}$) are also predicted better as observed previously.
+% Although the individual electrical parameters $V_{oc}$, $J_{sc}$, and $P_{mpp}$ are predicted with comparatively better accuracy than the fill factor (FF), the FF still exhibits the weakest overall prediction performance across all panels. This arises from the fact that FF is a composite quantity derived from $V_{oc}$, $J_{sc}$, and $P_{mpp}$, so even modest residual errors in these underlying parameters accumulate and amplify in the FF expression, making it more sensitive to prediction inaccuracies than the individual quantities themselves.
+
+% This behaviour is particularly pronounced for Perovskite Panel~1, which shows a high NRMSE of $0.33$ together with a very low coefficient of determination ($R^2 = 0.035$), indicating that the predicted FF values do not reproduce the variation present in the reference data as well as other parameters. Perovskite Panel~3 shows similarly weak performance, whereas the silicon panel achieves relatively higher accuracy. This difference is consistent with the observation that the silicon model more accurately reproduces the underlying J-V curve shape, especially around the knee region where $P_{mpp}$ is determined. $P_{mpp}$ prediction for silicon is also comparatively better as seen previously, hence contributing to better prediction FF than in perovskites panels.
+
+% The reduced performance for FF is expected because it is not determined by a single point on the J-V curve, but depends on the combined relationship between $V_{oc}$, $J_{sc}$, and $P_{mpp}$:
+
+% $$ FF = \frac{P_{mpp}}{V_{oc}J_{sc}} $$
+
+
+% As a result, FF inherits and amplifies the prediction errors of all three underlying parameters. Even when the individual errors in $V_{oc}$, $J_{sc}$, and $P_{mpp}$ are moderate, their combined effect in the FF ratio can produce disproportionately large deviations. This error propagation is particularly sensitive to small inaccuracies in the predicted curvature of the J-V characteristic near the knee region, where $P_{mpp}$ is located. For perovskite devices, this region is more challenging to model than silicon devices due to additional dynamic processes such as ion migration and trap filling, which distort the curve shape in ways not fully learned by the hybrid model. Consequently, even small voltage-dependent discrepancies between the predicted and measured curves can lead to substantial variation in the extracted FF. The lower $V_{oc}$, $J_{sc}$ and $P_{mpp}$ prediction observed for perovskite panels also contribute to the lower prediction for FF.
+
+% Furthermore, FF is generally strongly influenced by series resistance, shunt leakage, and recombination losses, all of which affect the slope and curvature of the J-V curve rather than its absolute values \cite{greulich_et_al}. These shape-dependent effects are more difficult for the model to learn, especially for perovskite panels where the residual correction must compensate for non-idealities not represented in the simplified physical model.
+
+
+% \subsection{Series Resistance (\(R_s\))}
+% The predictions of \(R_s\) show moderate agreement across the three panels. The variation in \(R_s\) is reproduced more consistently for the silicon dataset, although the moderate \(R^2\) values indicate the model does not fully reproduce the sample-to-sample variation in \(R_s\).  
+
+% The comparatively better \(R_s\) prediction for the silicon panel may therefore be related to the more consistent relationship between its measured J-V characteristics and the corresponding single-diode parameters. In the perovskite datasets, additional non-ideal and time-dependent effects, such as ionic migration, hysteresis, and interfacial or contact-related behaviour, may modify the J-V characteristic in ways that are not uniquely represented by $R_s$. Ionic redistribution can alter the internal electric field under forward bias, producing smooth, voltage-dependent changes in the high-voltage slope that resemble variations in $R_s$ but do not correspond to true resistive losses. Charge trapping and detrapping can also distort the J-V curve, typically generating mid-voltage kinks or scan-rate-dependent changes in fill factor; however, such features are not strongly present in the measured data. The observed discrepancies in the perovskite panels appear primarily as smooth deviations concentrated near $V_{oc}$, consistent with ion-transport-driven modification of the high-voltage region rather than trap-dominated distortions. This suggests that ionic migration is the most likely contributor to the reduced $R_s$ identifiability in the perovskite datasets, whereas the silicon panel exhibits more stable and uniquely interpretable resistive behaviour.
+
+
+% \subsection{Shunt Resistance (\(R_{sh}\))}
+% For \(R_{sh}\) the NRMSE values indicate substantial prediction errors, reaching 0.322 for the silicon panel, while Pearson correlations remain weak (\(R=0.156\)–\(0.270\)) and the \(R^2\) values are close to zero.
+
+% These results indicate that both the magnitude and sample-to-sample variation of the parameter are difficult to predict accurately. The weaker Pearson correlations and \(R^2\) values suggest that the predicted \(R_{sh}\) values do not consistently reproduce the variation observed in the reference parameters. A possible reason is the limited sensitivity of the J-V curve to changes in $R_{sh}$, particularly when the shunt resistance is relatively high. In the single-diode model, the shunt term appears as $(V + J R_s)/R_{sh}$, and when $R_{sh}$ is large this contribution becomes very small, causing $\partial J / \partial R_{sh}$ to approach zero. As a result, even substantial variations in $R_{sh}$ produce only minimal changes in the measured J-V curve, leaving the model with little voltage-dependent information from which to infer the true sample-to-sample variation. In addition, the extraction of single-diode parameters can be non-unique, meaning that similar J-V characteristics may be obtained from different combinations of \(R_{sh}\) and other diode parameters \cite{rhouma_simple_2017,humada_solar_2016}. Consequently, variations in \(R_{sh}\) extracted from the J-V curves may not correspond to a unique or easily learnable relationship, making detailed prediction of this parameter more challenging.
+
+% \subsection{Summary}
+% These results show that parameters directly associated with prominent and identifiable features of the J-V curve, such as $V_{oc}$ and $J_{sc}$ are generally predicted more reliably because variations in these parameters produce observable changes in specific regions or characteristics of the curve. In contrast, parameters that depend on the precise shape and position of the knee region, such as $P_{mpp}$ and FF, exhibit greater sensitivity to local prediction errors, since small deviations in the voltage-current relationship around this nonlinear transition can propagate into larger errors in the extracted quantities. The diode parameters $R_{sh}$ show weaker correlation and numerical errors, which is consistent with the inherent coupling and non-uniqueness involved in extracting single-diode parameters from J-V characteristics. This is challenging because multiple diode parameters can simultaneously influence the shape of the J-V curve, allowing different parameter combinations to produce similar electrical characteristics. Previous studies have similarly highlighted that different combinations of single-diode parameters can produce nearly identical J-V curves, making individual parameter estimation more challenging \cite{sabadus_nature_2021, laudani_hybrid_2015, humada_solar_2016}.

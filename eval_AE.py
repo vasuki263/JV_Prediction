@@ -6,8 +6,10 @@ import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter1d
-from jv_analysis import extract_jv_physics
+from scipy.signal import savgol_filter
 
+from jv_analysis import extract_jv_physics
+from matplotlib.lines import Line2D
 from sklearn.metrics import (
     mean_absolute_error,
     mean_squared_error,
@@ -15,7 +17,7 @@ from sklearn.metrics import (
 )
 
 from model_autoencoder import (
-    PhysicsInformedJVModel
+    PhysicsInformedJVModel, SingleDiodeSolver
 )
 
 
@@ -36,8 +38,7 @@ def reset_dir(path):
 # ========================================================
 # Smooth JV curves for visualization ONLY
 # ========================================================
-
-def smooth_jv_curve(current, sigma=2.0):
+def smooth_jv_curve(current, sigma=8.0):
     """
     Smooth JV curve for plotting only.
 
@@ -350,11 +351,11 @@ def evaluate_diode_model(
 
     tech,
 
-    num_curves=10,
+    num_curves=15,
 ):
 
     base_dir = (
-        f"outputs/{tech}/SEPIV1/ae/eval_outputs_0_2_diode_loss_v3"
+        f"outputs/{tech}/SEPIV3/test_test"
     )
 
     curve_dir = os.path.join(
@@ -442,7 +443,7 @@ def evaluate_diode_model(
 
     checkpoint = torch.load(
         model_path,
-        map_location=device
+        map_location=device, weights_only=False
     )
 
     # ========================================================
@@ -562,7 +563,6 @@ def evaluate_diode_model(
         * diode_std
         + diode_mean
     )
-
     # ========================================================
     # TRUE JV RESIDUAL
     #
@@ -850,19 +850,24 @@ def evaluate_diode_model(
 
         true_curve = jv_true[idx]
         pred_curve = final_preds[idx]
-
+        physics_curve = physics_preds[idx]
         # ----------------------------------------------------
         # Smooth ONLY for visualization
         # ----------------------------------------------------
 
         true_smooth = smooth_jv_curve(
             true_curve,
-            sigma=8.0
+            sigma=25.0
         )
 
         pred_smooth = smooth_jv_curve(
             pred_curve,
-            sigma=8.0
+            sigma=25.0
+        )
+
+        physics_smooth = smooth_jv_curve(
+            physics_curve,
+            sigma=25.0
         )
 
         # ----------------------------------------------------
@@ -877,6 +882,14 @@ def evaluate_diode_model(
             V_grid,
             true_smooth,
             label="True JV",
+            linewidth=2.5
+        )
+
+        plt.plot(
+            V_grid,
+            physics_smooth,
+            "-.",
+            label="Physics JV",
             linewidth=2.5
         )
 
@@ -898,7 +911,7 @@ def evaluate_diode_model(
         )
 
         plt.ylabel(
-            "Current (A)",
+            "Current Density(A/m$^2$)",
             fontsize=12
         )
 
@@ -954,7 +967,7 @@ def evaluate_diode_model(
             label="True JV residual",
             linewidth=2
         )
-
+        pred_residual_smooth = smooth_jv_curve(residual_preds[idx], sigma=8.0)
         plt.plot(
             V_grid,
             residual_preds[idx],
@@ -1294,7 +1307,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-curves",
         type=int,
-        default=10,
+        default=35,
         help=(
             "Number of curves to plot"
         )

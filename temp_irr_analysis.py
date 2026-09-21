@@ -1220,7 +1220,7 @@ def run_level4_analysis(
     base_dir = os.path.join(
         output_root,
         tech,
-        "temp_irr_analysis_with_plane_fit"
+        "temp_irr_analysis_with_plane_fit_v2"
     )
 
     surface_dir = os.path.join(

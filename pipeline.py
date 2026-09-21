@@ -31,8 +31,8 @@ TECH_CONFIG = {
         "lstm_model_path": "models/jv_lstm_silicon.pth",
 
         # AE paths (unchanged)
-        "ae_dataset": "data/jv_autoencoder_dataset_silicon.npz",
-        "ae_model_path": "models/jv_autoencoder_silicon.pth",
+        "ae_dataset": "data/jv_autoencoder_dataset_silicon_temp_heatmap.npz",
+        "ae_model_path": "models/jv_autoencoder_silicon_test.pth",
     },
 
     "Perovskite_5&6": {
@@ -44,8 +44,8 @@ TECH_CONFIG = {
         "lstm_model_path": "models/jv_lstm_perovskite.pth",
 
         # AE paths (unchanged)
-        "ae_dataset": "data/jv_autoencoder_dataset_perovskite_iv1.npz",
-        "ae_model_path": "models/jv_autoencoder_perovskite_iv1.pth",
+        "ae_dataset": "data/jv_autoencoder_dataset_perovskite_iv3_test.npz",
+        "ae_model_path": "models/jv_autoencoder_perovskite_iv3_test.pth",
     }
 }
 
