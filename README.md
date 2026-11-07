@@ -6,7 +6,7 @@ The pipeline supports both **Silicon** and **Perovskite** photovoltaic technolog
 
 ## Research Objective
 
-The objective of this research is to investigate the use of **Autoencoders for learning compressed latent representations of photovoltaic J–V curves** under varying environmental conditions.
+The objective of this research is to investigate the use of **Physics informed ML Autoencoders for learning compressed latent representations of photovoltaic J–V curves** under varying environmental conditions.
 
 The model learns compact representations of measured J–V characteristics from both Silicon and Perovskite solar cells, capturing the underlying patterns and variations associated with changes in environmental conditions, particularly temperature and irradiance.
 
