@@ -1,4 +1,4 @@
-# Photovoltaic J–V Curve Analysis Using Autoencoders
+# Physics-Informed Machine Learning for FullJ–V Curve Prediction of Perovskite and Silicon Photovoltaic Module
 
 This project provides an end-to-end pipeline for developing, training, and evaluating an **Autoencoder model for photovoltaic J–V (Current Density–Voltage) curve analysis**.
 
