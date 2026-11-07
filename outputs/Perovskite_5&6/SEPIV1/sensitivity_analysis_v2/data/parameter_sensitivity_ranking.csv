@@ -1,8 +1,0 @@
-Parameter,Temperature_Sensitivity,Irradiance_Sensitivity,Temperature_Rank,Irradiance_Rank
-Rsh,91.99858,9.065522,1,1
-Io,30.370224,5.9010887,2,2
-Pmpp,7.1226015,0.4686463,3,3
-Voc,6.466207,0.35325474,4,5
-Jsc,3.045635,0.101985134,5,7
-Rs,2.1948729,0.38444588,6,4
-Iph,1.5740103,0.21376398,7,6
